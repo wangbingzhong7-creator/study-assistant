@@ -348,12 +348,14 @@
   <div class="welcome">
     <div class="icon">🤖</div>
     <h2>你好，我是你的备考助手</h2>
-    <p>我可以搜索资料、整理笔记、读取已有内容<br>告诉我你想学什么，我来帮你</p>
+    <p>搜索资料 · 自动笔记 · 语义记忆 · 智能出题<br>告诉我你想学什么，我来帮你</p>
     <div class="chips">
+      <div class="chip" onclick="quickSend(this)">📝 给我出5道政治选择题</div>
+      <div class="chip" onclick="quickSend(this)">📝 来几道数学题练练</div>
       <div class="chip" onclick="quickSend(this)">📖 整理热力学第二定律</div>
-      <div class="chip" onclick="quickSend(this)">🔍 搜索卡诺循环并保存</div>
-      <div class="chip" onclick="quickSend(this)">📋 我有哪些笔记？</div>
-      <div class="chip" onclick="quickSend(this)">✍️ 考研数学一 极限 知识点</div>
+      <div class="chip" onclick="quickSend(this)">📋 数学科目有哪些笔记？</div>
+      <div class="chip" onclick="quickSend(this)">🔍 搜索英语作文模板</div>
+      <div class="chip" onclick="quickSend(this)">🎯 随便出点题考考我</div>
     </div>
   </div>
 </div>
@@ -388,12 +390,35 @@ function quickSend(el) {
   sendMsg();
 }
 
-function renderMarkdown(text) {
-  return text
+function _r(s) {
+  return s
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/`(.*?)`/g, '<code>$1</code>')
-    .replace(/\n/g, '<br>');
+    .replace(/`(.*?)`/g, '<code>$1</code>');
+}
+function renderMarkdown(text) {
+  let html = '';
+  const blocks = text.split(/\n\n+/);
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    let inList = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^#{2,4}\s/.test(line)) {
+        if (inList) { html += '</ul>'; inList = false; }
+        const lev = line.match(/^(#{2,4})/)[0].length + 1;
+        html += '<h' + lev + ' style="font-size:' + (18-lev*2) + 'px;margin:12px 0 4px;color:var(--gold)">' + line.replace(/^#{2,4}\s/, '') + '</h' + lev + '>';
+      } else if (/^[\-\*]\s/.test(line)) {
+        if (!inList) { html += '<ul style="margin:4px 0;padding-left:18px">'; inList = true; }
+        html += '<li style="margin:2px 0">' + _r(line.replace(/^[\-\*]\s/, '')) + '</li>';
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<p style="margin:4px 0">' + _r(line) + '</p>';
+      }
+    }
+    if (inList) { html += '</ul>'; }
+  }
+  return html || text;
 }
 
 function addMsg(role, content) {
