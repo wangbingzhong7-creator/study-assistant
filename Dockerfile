@@ -21,7 +21,8 @@ ENV DATA_DIR=/app/data
 # 嵌入模型首次下载预热（构建时缓存）
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"
 
-EXPOSE 5000
+EXPOSE ${PORT:-5000}
 
-# gunicorn 生产模式：1 worker（因为嵌入模型较重，多 worker 会 OOM）
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "120", "--preload", "app_fj:app"]
+# gunicorn 生产模式：1 worker（嵌入模型较重，多worker OOM）
+# PORT 由 Railway 自动注入，本地默认 5000
+CMD exec gunicorn --bind "0.0.0.0:${PORT:-5000}" --workers 1 --timeout 120 --preload app_fj:app
