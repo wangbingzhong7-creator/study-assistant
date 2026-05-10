@@ -21,7 +21,9 @@ MEMORY_META_FILE = os.path.join(DATA_DIR, "memory_meta.json")
 CONTEXT_SUMMARY_FILE = os.path.join(DATA_DIR, "context_summary.json")
 MAX_HISTORY_PAIRS = 8  # 保留最近 8 轮完整对话，更早的压缩为摘要
 
-BASE_SYSTEM_PROMPT = "你是一个备考助手，帮助用户整理考研知识点。你拥有长期记忆——每次对话后知识点会自动入库。回答用户问题前，先用 search_memory 搜索历史记忆，看看之前是否讨论过相关内容，再结合记忆回答。需要时使用：search_web（搜索网络）、save_note（保存笔记）、read_note（读取笔记）、list_topics（列出笔记）、search_memory（语义搜索记忆）。"
+SUBJECTS = ["政治", "英语", "数学", "专业课", "其他"]
+
+BASE_SYSTEM_PROMPT = "你是一个备考助手，帮助用户整理考研知识点。你拥有长期记忆——每次对话后知识点会自动入库。回答用户问题前，先用 search_memory 搜索历史记忆，看看之前是否讨论过相关内容，再结合记忆回答。保存笔记时请根据内容判断所属科目（政治/英语/数学/专业课/其他），搜索记忆时可用科目筛选。需要时使用：search_web（搜索网络）、save_note（保存笔记，需指定subject科目）、read_note（读取笔记）、list_topics（列出笔记，可按科目筛选）、search_memory（语义搜索记忆，可按科目过滤）。"
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -167,12 +169,13 @@ def save_meta(meta):
 
 memory_meta = load_meta()
 
-def _ensure_meta(note_id, topic, source):
+def _ensure_meta(note_id, topic, source, subject=""):
     """为新笔记初始化元数据"""
     if note_id not in memory_meta:
         memory_meta[note_id] = {
             "topic": topic,
             "source": source,
+            "subject": subject,
             "search_count": 0,
             "created_at": time.time()
         }
@@ -239,13 +242,14 @@ def _cosine_sim(a, b):
     return dot / (norm_a * norm_b) if norm_a and norm_b else 0
 
 
-def search_memory(query, n=3):
-    """语义搜索笔记，按余弦相似度×重要性权重排序"""
+def search_memory(query, n=3, subject=""):
+    """语义搜索笔记，按余弦相似度×重要性权重排序，可按科目过滤"""
     q_emb = _embed(query)
-    # 多取候选，用余弦相似度重排
     fetch_n = max(n * 3, 10)
+    # 多取一些候选，应用科目过滤后再排序
     candidates = collection.query(
-        query_embeddings=[q_emb], n_results=fetch_n, include=['embeddings', 'documents', 'metadatas']
+        query_embeddings=[q_emb], n_results=max(fetch_n, collection.count()),
+        include=['embeddings', 'documents', 'metadatas']
     )
     if not candidates['documents'][0]:
         return "未找到相关笔记"
@@ -257,32 +261,43 @@ def search_memory(query, n=3):
         candidates['embeddings'][0],
         candidates['ids'][0]
     ):
+        # 科目过滤
+        doc_subject = meta.get('subject', '') or memory_meta.get(nid, {}).get('subject', '')
+        if subject and doc_subject and doc_subject != subject:
+            continue
         cos = _cosine_sim(q_emb, emb)
         imp = _importance(nid, len(doc))
         score = cos * imp
-        scored.append((score, meta.get('topic', '未知'), doc[:500], nid))
+        scored.append((score, meta.get('topic', '未知'), doc[:500], nid, doc_subject))
+
+    if not scored:
+        subj_hint = f"在科目「{subject}」中" if subject else ""
+        return f"{subj_hint}未找到相关笔记"
 
     scored.sort(key=lambda x: x[0], reverse=True)
     _record_search([s[3] for s in scored[:n]])
 
     output = []
-    for score, topic, doc, nid in scored[:n]:
+    for score, topic, doc, nid, doc_subj in scored[:n]:
         meta = memory_meta.get(nid, {})
         src_label = {"manual": "手动", "migrated": "迁移", "auto": "自动"}.get(meta.get("source", ""), "")
         hits = meta.get("search_count", 0)
-        output.append(f"【{topic}】（得分:{score:.2f} | {src_label}保存 | 被查阅{hits}次）\n{doc[:500]}")
+        subj_tag = f" | {doc_subj}" if doc_subj else ""
+        output.append(f"【{topic}】（得分:{score:.2f}{subj_tag} | {src_label}保存 | 被查阅{hits}次）\n{doc[:500]}")
     return ("\n" + "=" * 50 + "\n").join(output)
 
-def save_to_vector(topic, content, source="manual"):
-    """将笔记存入向量数据库，记录元数据"""
+def save_to_vector(topic, content, source="manual", subject=""):
+    """将笔记存入向量数据库，记录元数据（含科目分类）"""
     note_id = topic.replace(" ", "_")
     emb = _embed(content)
     existing = collection.get(ids=[note_id])
     if existing['ids']:
-        collection.update(ids=[note_id], embeddings=[emb], documents=[content], metadatas=[{"topic": topic, "source": source}])
+        collection.update(ids=[note_id], embeddings=[emb], documents=[content],
+                          metadatas=[{"topic": topic, "source": source, "subject": subject}])
     else:
-        collection.add(ids=[note_id], embeddings=[emb], documents=[content], metadatas=[{"topic": topic, "source": source}])
-    _ensure_meta(note_id, topic, source)
+        collection.add(ids=[note_id], embeddings=[emb], documents=[content],
+                       metadatas=[{"topic": topic, "source": source, "subject": subject}])
+    _ensure_meta(note_id, topic, source, subject)
 
 def migrate_existing_notes():
     """将已有的文件笔记迁移到向量数据库"""
@@ -305,15 +320,17 @@ migrate_existing_notes()
 # ── 自动记忆 ──────────────────────────────────────
 
 def extract_knowledge(user_msg, assistant_msg):
-    """分析对话，决定是否值得记住，并提取知识点摘要"""
+    """分析对话，决定是否值得记住，并提取知识点摘要及所属科目"""
     prompt = f"""分析以下对话。如果只是闲聊、问候、与学习无关的话题，返回 worth_saving=false。
-如果涉及有价值的学习知识点，提取出知识点并给出主题和1-2句话摘要。
+如果涉及有价值的学习知识点，提取出知识点，给出主题、内容摘要、所属科目。
+
+科目从以下选择：政治、英语、数学、专业课、其他
 
 用户消息：{user_msg[:500]}
 助手回复：{assistant_msg[:800]}
 
 只返回 JSON（不要其他文字）：
-{{"worth_saving": true或false, "notes": [{{"topic": "知识点主题", "content": "摘要内容"}}]}}"""
+{{"worth_saving": true或false, "notes": [{{"topic": "知识点主题", "content": "摘要内容", "subject": "科目"}}]}}"""
 
     try:
         resp = requests.post(URL, headers=HEADERS, json={
@@ -342,6 +359,7 @@ def auto_memorize(user_msg, assistant_msg):
         for note in result["notes"]:
             topic = note.get("topic", "").strip()
             content = note.get("content", "").strip()
+            subject = note.get("subject", "").strip()
             if not (topic and content):
                 continue
             full_content = f"主题：{topic}\n{content}"
@@ -355,18 +373,19 @@ def auto_memorize(user_msg, assistant_msg):
                 ids=[note_id],
                 embeddings=[emb],
                 documents=[full_content],
-                metadatas=[{"topic": topic, "source": "auto"}]
+                metadatas=[{"topic": topic, "source": "auto", "subject": subject}]
             )
-            _ensure_meta(note_id, topic, "auto")
+            _ensure_meta(note_id, topic, "auto", subject)
 
 # ── 工具函数 ──────────────────────────────────────
 
-def save_note(topic, content):
+def save_note(topic, content, subject=""):
     path = os.path.join(NOTES_DIR, f"{topic}.txt")
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
-    save_to_vector(topic, content)
-    return f"笔记已保存：{topic}.txt"
+    save_to_vector(topic, content, subject=subject)
+    subject_tag = f"[{subject}] " if subject else ""
+    return f"笔记已保存：{subject_tag}{topic}.txt"
 
 def read_note(topic):
     path = os.path.join(NOTES_DIR, f"{topic}.txt")
@@ -375,10 +394,31 @@ def read_note(topic):
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
-def list_topics():
-    files = os.listdir(NOTES_DIR)
-    topics = [f.replace(".txt", "") for f in files if f.endswith(".txt")]
-    return "已有笔记：" + "、".join(topics) if topics else "还没有任何笔记"
+def list_topics(subject=""):
+    """列出已有笔记，可按科目筛选，返回按科目分组的结果"""
+    # 从向量库和内存元数据汇总
+    subjects = {}
+    all_ids = collection.get()['ids']
+    for nid in all_ids:
+        meta = memory_meta.get(nid, {})
+        s = meta.get("subject", "其他") or "其他"
+        t = meta.get("topic", nid)
+        if subject and s != subject:
+            continue
+        subjects.setdefault(s, []).append(t)
+
+    if not subjects:
+        return "还没有任何笔记"
+
+    lines = []
+    for s in SUBJECTS:
+        if s in subjects:
+            topics = subjects.pop(s)
+            lines.append(f"【{s}】{'、'.join(topics)}")
+    # 剩余不在预设科目里的
+    for s, topics in subjects.items():
+        lines.append(f"【{s}】{'、'.join(topics)}")
+    return "\n".join(lines)
 
 def search_web(query):
     try:
@@ -393,21 +433,22 @@ def search_web(query):
         return "搜索失败，请检查网络"
 
 def run_tool(name, args):
-    if name == "save_note":    return save_note(**args)
+    if name == "save_note":    return save_note(topic=args.get("topic",""), content=args.get("content",""), subject=args.get("subject",""))
     if name == "read_note":    return read_note(**args)
-    if name == "list_topics":  return list_topics()
+    if name == "list_topics":  return list_topics(subject=args.get("subject",""))
     if name == "search_web":   return search_web(**args)
-    if name == "search_memory":return search_memory(**args)
+    if name == "search_memory":return search_memory(query=args.get("query",""), n=args.get("n",3), subject=args.get("subject",""))
     return f"未知工具：{name}"
 
 TOOLS = [
     {"type": "function", "function": {
         "name": "save_note",
-        "description": "将知识点笔记保存到本地文件",
+        "description": "将知识点笔记保存到本地文件。需要根据内容判断所属科目。",
         "parameters": {"type": "object", "properties": {
             "topic": {"type": "string", "description": "笔记主题"},
-            "content": {"type": "string", "description": "笔记正文"}
-        }, "required": ["topic", "content"]}
+            "content": {"type": "string", "description": "笔记正文"},
+            "subject": {"type": "string", "description": "科目：政治/英语/数学/专业课/其他"}
+        }, "required": ["topic", "content", "subject"]}
     }},
     {"type": "function", "function": {
         "name": "read_note",
@@ -418,8 +459,10 @@ TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "list_topics",
-        "description": "列出所有已保存的笔记主题",
-        "parameters": {"type": "object", "properties": {}}
+        "description": "列出所有已保存的笔记主题，可按科目筛选",
+        "parameters": {"type": "object", "properties": {
+            "subject": {"type": "string", "description": "可选，按科目筛选：政治/英语/数学/专业课/其他"}
+        }}
     }},
     {"type": "function", "function": {
         "name": "search_web",
@@ -430,10 +473,11 @@ TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "search_memory",
-        "description": "语义搜索已保存的笔记，查找与查询相关的内容。当你需要回顾之前学过的知识点时用这个工具，而不是用关键词精确匹配。",
+        "description": "语义搜索已保存的笔记，可按科目过滤。当你需要回顾之前学过的知识点时用这个工具。",
         "parameters": {"type": "object", "properties": {
             "query": {"type": "string", "description": "要搜索的问题或知识点描述，支持自然语言"},
-            "n": {"type": "integer", "description": "返回的结果数量，默认3"}
+            "n": {"type": "integer", "description": "返回的结果数量，默认3"},
+            "subject": {"type": "string", "description": "可选，按科目过滤：政治/英语/数学/专业课/其他"}
         }, "required": ["query"]}
     }}
 ]
