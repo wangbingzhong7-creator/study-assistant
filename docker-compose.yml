@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DEEPSEEK_KEY=${DEEPSEEK_KEY}
+      - TAVILY_KEY=${TAVILY_KEY}
+      - DATA_DIR=/app/data
+    volumes:
+      # 持久化数据：笔记、向量库、对话历史 不会随容器重启丢失
+      - app_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  app_data:

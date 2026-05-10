@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>驭学 · AI备考助手</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0d0f14;
+    --surface:  #141720;
+    --border:   #1e2330;
+    --accent:   #4f8ef7;
+    --accent2:  #a78bfa;
+    --gold:     #f5c842;
+    --green:    #34d399;
+    --red:      #f87171;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --mono:     'JetBrains Mono', monospace;
+    --serif:    'Noto Serif SC', serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* 顶部标题栏 */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, #0d0f14 0%, #141a2e 100%);
+    flex-shrink: 0;
+  }
+
+  .logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 20px rgba(79,142,247,0.4);
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+    letter-spacing: 1px;
+    margin-left: auto;
+  }
+
+  /* 聊天区域 */
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    scroll-behavior: smooth;
+  }
+
+  #chat::-webkit-scrollbar { width: 4px; }
+  #chat::-webkit-scrollbar-track { background: transparent; }
+  #chat::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* 欢迎信息 */
+  .welcome {
+    text-align: center;
+    padding: 40px 20px;
+    animation: fadeUp 0.6s ease;
+  }
+
+  .welcome .icon { font-size: 48px; margin-bottom: 16px; }
+
+  .welcome h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .welcome p {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.8;
+    font-family: var(--mono);
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 20px;
+  }
+
+  .chip {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--mono);
+    transition: all 0.2s;
+  }
+
+  .chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(79,142,247,0.05);
+  }
+
+  /* 消息气泡 */
+  .msg {
+    display: flex;
+    gap: 12px;
+    animation: fadeUp 0.35s ease;
+  }
+
+  .msg.user { flex-direction: row-reverse; }
+
+  .avatar {
+    width: 32px; height: 32px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+
+  .avatar.ai {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    box-shadow: 0 0 12px rgba(79,142,247,0.3);
+  }
+
+  .avatar.user-av {
+    background: linear-gradient(135deg, #374151, #1f2937);
+    border: 1px solid var(--border);
+  }
+
+  .bubble {
+    max-width: 75%;
+    padding: 14px 18px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
+  .msg.user .bubble {
+    background: linear-gradient(135deg, #1e3a5f, #1a2d4a);
+    border: 1px solid rgba(79,142,247,0.25);
+    border-top-right-radius: 4px;
+  }
+
+  .msg.ai .bubble {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top-left-radius: 4px;
+  }
+
+  /* 工具调用卡片 */
+  .tool-card {
+    margin: 6px 0;
+    padding: 10px 14px;
+    background: rgba(79,142,247,0.05);
+    border: 1px solid rgba(79,142,247,0.15);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  .tool-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .tool-badge {
+    padding: 2px 8px;
+    background: rgba(79,142,247,0.15);
+    border: 1px solid rgba(79,142,247,0.3);
+    border-radius: 4px;
+    color: var(--accent);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+
+  .tool-name { color: var(--accent); font-weight: 500; }
+  .tool-args { color: var(--muted); font-size: 11px; }
+
+  .tool-result {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+    color: var(--green);
+    font-size: 11px;
+  }
+
+  /* 输入区域 */
+  footer {
+    padding: 16px 20px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+    flex-shrink: 0;
+  }
+
+  .input-wrap {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 16px;
+    transition: border-color 0.2s;
+  }
+
+  .input-wrap:focus-within {
+    border-color: rgba(79,142,247,0.5);
+    box-shadow: 0 0 0 3px rgba(79,142,247,0.08);
+  }
+
+  #input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: var(--serif);
+    font-size: 14px;
+    resize: none;
+    line-height: 1.6;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  #input::placeholder { color: var(--muted); }
+
+  #send {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: white;
+    font-size: 16px;
+    flex-shrink: 0;
+    transition: all 0.2s;
+    box-shadow: 0 0 14px rgba(79,142,247,0.35);
+  }
+
+  #send:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(79,142,247,0.5); }
+  #send:disabled { opacity: 0.4; transform: none; cursor: not-allowed; }
+
+  /* 思考动画 */
+  .thinking {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    border-top-left-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    animation: fadeUp 0.3s ease;
+  }
+
+  .dots { display: flex; gap: 4px; }
+  .dot {
+    width: 5px; height: 5px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: bounce 1.2s infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-5px); opacity: 1; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Markdown 渲染 */
+  .bubble strong { color: var(--gold); font-weight: 600; }
+  .bubble em { color: var(--accent2); font-style: normal; }
+  .bubble code {
+    background: rgba(255,255,255,0.06);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+  }
+
+  .hint {
+    text-align: center;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+    margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📚</div>
+  <h1>驭学 · AI备考助手</h1>
+  <span class="subtitle">AGENT · POWERED BY DEEPSEEK</span>
+</header>
+
+<div id="chat">
+  <div class="welcome">
+    <div class="icon">🤖</div>
+    <h2>你好，我是你的备考助手</h2>
+    <p>我可以搜索资料、整理笔记、读取已有内容<br>告诉我你想学什么，我来帮你</p>
+    <div class="chips">
+      <div class="chip" onclick="quickSend(this)">📖 整理热力学第二定律</div>
+      <div class="chip" onclick="quickSend(this)">🔍 搜索卡诺循环并保存</div>
+      <div class="chip" onclick="quickSend(this)">📋 我有哪些笔记？</div>
+      <div class="chip" onclick="quickSend(this)">✍️ 考研数学一 极限 知识点</div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="input-wrap">
+    <textarea id="input" rows="1" placeholder="问我任何考研问题…" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <button id="send" onclick="sendMsg()">↑</button>
+  </div>
+  <p class="hint">Enter 发送 · Shift+Enter 换行</p>
+</footer>
+
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMsg();
+  }
+}
+
+function quickSend(el) {
+  input.value = el.textContent.replace(/^[^\s]+\s/, '');
+  sendMsg();
+}
+
+function renderMarkdown(text) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`(.*?)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>');
+}
+
+function addMsg(role, content) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+
+  const av = document.createElement('div');
+  av.className = `avatar ${role === 'user' ? 'user-av' : 'ai'}`;
+  av.textContent = role === 'user' ? '你' : '🤖';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+
+  if (role === 'ai' && typeof content === 'object') {
+    // 渲染工具调用 + 最终回答
+    content.events.forEach(ev => {
+      if (ev.type === 'tool') {
+        const card = document.createElement('div');
+        card.className = 'tool-card';
+        const argStr = Object.entries(ev.args)
+          .map(([k,v]) => `${k}: "${String(v).slice(0,40)}"`)
+          .join(', ');
+        card.innerHTML = `
+          <div class="tool-header">
+            <span class="tool-badge">TOOL</span>
+            <span class="tool-name">${ev.name}</span>
+          </div>
+          <div class="tool-args">${argStr}</div>
+          <div class="tool-result">✓ ${ev.result}</div>
+        `;
+        bubble.appendChild(card);
+      } else if (ev.type === 'answer') {
+        const p = document.createElement('div');
+        p.style.marginTop = content.events.some(e=>e.type==='tool') ? '12px' : '0';
+        p.innerHTML = renderMarkdown(ev.content);
+        bubble.appendChild(p);
+      }
+    });
+  } else {
+    bubble.innerHTML = renderMarkdown(String(content));
+  }
+
+  div.appendChild(av);
+  div.appendChild(bubble);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function addThinking() {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ai';
+  wrap.id = 'thinking';
+  wrap.innerHTML = `
+    <div class="avatar ai">🤖</div>
+    <div class="thinking">
+      <div class="dots">
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <div class="dot"></div>
+      </div>
+      正在思考…
+    </div>
+  `;
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function sendMsg() {
+  const text = input.value.trim();
+  if (!text) return;
+
+  const welcome = document.querySelector('.welcome');
+  if (welcome) welcome.remove();
+
+  input.value = '';
+  input.style.height = 'auto';
+  sendBtn.disabled = true;
+
+  addMsg('user', text);
+
+  // 创建 AI 气泡，准备流式填充
+  const aiDiv = document.createElement('div');
+  aiDiv.className = 'msg ai';
+  const av = document.createElement('div');
+  av.className = 'avatar ai';
+  av.textContent = '🤖';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  aiDiv.appendChild(av);
+  aiDiv.appendChild(bubble);
+  chat.appendChild(aiDiv);
+  addThinking();
+
+  try {
+    const resp = await fetch('/chat_stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text })
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let textContent = '';
+
+    document.getElementById('thinking')?.remove();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // 保留不完整的行
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = JSON.parse(line.slice(6));
+
+        if (data.type === 'tool') {
+          // 工具调用卡片
+          const card = document.createElement('div');
+          card.className = 'tool-card';
+          card.innerHTML = `
+            <div class="tool-header">
+              <span class="tool-badge">TOOL</span>
+              <span class="tool-name">${data.name}</span>
+            </div>
+            <div class="tool-result">✓ ${data.result}</div>
+          `;
+          bubble.appendChild(card);
+          chat.scrollTop = chat.scrollHeight;
+
+        } else if (data.type === 'text') {
+          // 逐字追加
+          textContent += data.char;
+          // 找到或创建文字段落
+          let p = bubble.querySelector('.answer-text');
+          if (!p) {
+            p = document.createElement('div');
+            p.className = 'answer-text';
+            bubble.appendChild(p);
+          }
+          p.innerHTML = renderMarkdown(textContent);
+          chat.scrollTop = chat.scrollHeight;
+
+        } else if (data.type === 'done') {
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    document.getElementById('thinking')?.remove();
+    bubble.innerHTML = '连接失败，请重试。';
+  }
+
+  sendBtn.disabled = false;
+  input.focus();
+}
+</script>
+</body>
+</html>

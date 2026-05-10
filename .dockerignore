@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+.git
+vector_db
+notes
+history.json
+context_summary.json
+memory_meta.json
+*.md
+.env
