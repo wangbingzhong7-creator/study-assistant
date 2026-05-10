@@ -133,7 +133,13 @@ def compress_history():
 
 VECTOR_DIR = os.path.join(DATA_DIR, "vector_db")
 
-embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+_embedder = None
+
+def _get_embedder():
+    global _embedder
+    if _embedder is None:
+        _embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    return _embedder
 
 def _norm(vec):
     """L2归一化，保证欧氏距离与余弦相似度一致"""
@@ -142,7 +148,7 @@ def _norm(vec):
 
 def _embed(text):
     """编码文本并返回归一化向量"""
-    return _norm(embedder.encode(text).tolist())
+    return _norm(_get_embedder().encode(text).tolist())
 
 chroma_client = chromadb.PersistentClient(path=VECTOR_DIR)
 collection = chroma_client.get_or_create_collection(name="study_notes")
@@ -433,6 +439,10 @@ TOOLS = [
 ]
 
 # ── 路由 ──────────────────────────────────────────
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
 
 @app.route("/")
 def index():
