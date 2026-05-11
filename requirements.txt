@@ -1,5 +1,4 @@
 flask
 requests
 chromadb
-sentence-transformers
 gunicorn

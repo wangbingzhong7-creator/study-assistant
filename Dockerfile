@@ -18,9 +18,6 @@ COPY . .
 RUN mkdir -p /app/data
 ENV DATA_DIR=/app/data
 
-# 嵌入模型预下载（构建时缓存，80MB，轻量化）
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-
 EXPOSE ${PORT:-5000}
 
 # gunicorn 生产模式：1 worker（嵌入模型较重，多worker OOM）

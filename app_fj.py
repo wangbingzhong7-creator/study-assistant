@@ -7,7 +7,7 @@ import time
 import smtplib
 from email.message import EmailMessage
 import chromadb
-from sentence_transformers import SentenceTransformer
+from chromadb.utils import embedding_functions
 
 app = Flask(__name__)
 
@@ -140,25 +140,14 @@ def compress_history():
 
 VECTOR_DIR = os.path.join(DATA_DIR, "vector_db")
 
-_embedder = None
-
-def _get_embedder():
-    global _embedder
-    if _embedder is None:
-        _embedder = SentenceTransformer('all-MiniLM-L6-v2')
-    return _embedder
-
-def _norm(vec):
-    """L2归一化，保证欧氏距离与余弦相似度一致"""
-    mag = sum(x * x for x in vec) ** 0.5
-    return [x / mag for x in vec] if mag > 0 else vec
-
-def _embed(text):
-    """编码文本并返回归一化向量"""
-    return _norm(_get_embedder().encode(text).tolist())
-
+# 使用 ChromaDB 内置 ONNX 嵌入（免 PyTorch，内存仅 ~50MB）
+_ef = embedding_functions.DefaultEmbeddingFunction()
 chroma_client = chromadb.PersistentClient(path=VECTOR_DIR)
-collection = chroma_client.get_or_create_collection(name="study_notes")
+collection = chroma_client.get_or_create_collection(name="study_notes", embedding_function=_ef)
+
+def _sim_from_dist(dist):
+    """ChromaDB ONNX 返回余弦距离，转成相似度 [0,1]"""
+    return max(0, 1 - dist)
 
 # ── 记忆元数据（访问频次、来源、创建时间） ──────────
 
@@ -225,54 +214,42 @@ def _check_duplicate(content, threshold=0.75):
     if collection.count() == 0:
         return False, None
     try:
-        q_emb = _embed(content)
-        results = collection.query(query_embeddings=[q_emb], n_results=1, include=['embeddings', 'metadatas'])
+        results = collection.query(query_texts=[content], n_results=1, include=['metadatas', 'distances'])
         ids = results.get('ids', [[]])[0]
         if not ids:
             return False, None
-        stored_emb = results['embeddings'][0][0]
-        cos = _cosine_sim(q_emb, stored_emb)
-        if cos > threshold:
+        dist = results['distances'][0][0]
+        if _sim_from_dist(dist) > threshold:
             topic = results['metadatas'][0][0].get('topic', '未知')
             return True, topic
     except:
         pass
     return False, None
 
-def _cosine_sim(a, b):
-    """手动计算余弦相似度（兼容 list 和 numpy array）"""
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = sum(x * x for x in a) ** 0.5
-    norm_b = sum(x * x for x in b) ** 0.5
-    return dot / (norm_a * norm_b) if norm_a and norm_b else 0
-
 
 def search_memory(query, n=3, subject=""):
-    """语义搜索笔记，按余弦相似度×重要性权重排序，可按科目过滤"""
-    q_emb = _embed(query)
+    """语义搜索笔记，按相似度×重要性权重排序，可按科目过滤"""
     fetch_n = max(n * 3, 10)
-    # 多取一些候选，应用科目过滤后再排序
     candidates = collection.query(
-        query_embeddings=[q_emb], n_results=max(fetch_n, collection.count()),
-        include=['embeddings', 'documents', 'metadatas']
+        query_texts=[query], n_results=max(fetch_n, collection.count()),
+        include=['distances', 'documents', 'metadatas']
     )
     if not candidates['documents'][0]:
         return "未找到相关笔记"
 
     scored = []
-    for doc, meta, emb, nid in zip(
+    for doc, meta, dist, nid in zip(
         candidates['documents'][0],
         candidates['metadatas'][0],
-        candidates['embeddings'][0],
+        candidates['distances'][0],
         candidates['ids'][0]
     ):
-        # 科目过滤
         doc_subject = meta.get('subject', '') or memory_meta.get(nid, {}).get('subject', '')
         if subject and doc_subject and doc_subject != subject:
             continue
-        cos = _cosine_sim(q_emb, emb)
+        sim = _sim_from_dist(dist)
         imp = _importance(nid, len(doc))
-        score = cos * imp
+        score = sim * imp
         scored.append((score, meta.get('topic', '未知'), doc[:500], nid, doc_subject))
 
     if not scored:
@@ -294,13 +271,12 @@ def search_memory(query, n=3, subject=""):
 def save_to_vector(topic, content, source="manual", subject=""):
     """将笔记存入向量数据库，记录元数据（含科目分类）"""
     note_id = topic.replace(" ", "_")
-    emb = _embed(content)
     existing = collection.get(ids=[note_id])
     if existing['ids']:
-        collection.update(ids=[note_id], embeddings=[emb], documents=[content],
+        collection.update(ids=[note_id], documents=[content],
                           metadatas=[{"topic": topic, "source": source, "subject": subject}])
     else:
-        collection.add(ids=[note_id], embeddings=[emb], documents=[content],
+        collection.add(ids=[note_id], documents=[content],
                        metadatas=[{"topic": topic, "source": source, "subject": subject}])
     _ensure_meta(note_id, topic, source, subject)
 
@@ -316,8 +292,7 @@ def migrate_existing_notes():
             continue
         with open(os.path.join(NOTES_DIR, fname), "r", encoding="utf-8") as f:
             content = f.read()
-        emb = _embed(content)
-        collection.add(ids=[note_id], embeddings=[emb], documents=[content], metadatas=[{"topic": topic, "source": "migrated"}])
+        collection.add(ids=[note_id], documents=[content], metadatas=[{"topic": topic, "source": "migrated"}])
         _ensure_meta(note_id, topic, "migrated")
 
 migrate_existing_notes()
@@ -373,10 +348,8 @@ def auto_memorize(user_msg, assistant_msg):
             if is_dup:
                 continue
             note_id = f"auto_{int(time.time()*1000)}_{topic.replace(' ', '_')[:30]}"
-            emb = _embed(full_content)
             collection.add(
                 ids=[note_id],
-                embeddings=[emb],
                 documents=[full_content],
                 metadatas=[{"topic": topic, "source": "auto", "subject": subject}]
             )
