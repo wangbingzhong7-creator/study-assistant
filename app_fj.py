@@ -4,6 +4,8 @@ import requests
 import json
 import os
 import time
+import smtplib
+from email.message import EmailMessage
 import chromadb
 from sentence_transformers import SentenceTransformer
 
@@ -11,6 +13,9 @@ app = Flask(__name__)
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY", "")
 TAVILY_KEY = os.environ.get("TAVILY_KEY", "")
+# 反馈邮箱配置（QQ邮箱SMTP）
+FEEDBACK_EMAIL = os.environ.get("FEEDBACK_EMAIL", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 URL = "https://api.deepseek.com/chat/completions"
 HEADERS = {"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"}
 DATA_DIR = os.environ.get("DATA_DIR", ".")
@@ -662,6 +667,43 @@ def health():
 @app.route("/stats")
 def stats():
     return jsonify(get_stats())
+
+@app.route("/feedback", methods=["POST"])
+def feedback():
+    data = request.get_json()
+    msg_text = data.get("message", "").strip()
+    if not msg_text or len(msg_text) < 2:
+        return jsonify({"status": "error", "msg": "内容太短"}), 400
+
+    # 保存到本地文件作为备份
+    feedback_file = os.path.join(DATA_DIR, "feedback.json")
+    feedbacks = []
+    if os.path.exists(feedback_file):
+        with open(feedback_file, "r", encoding="utf-8") as f:
+            feedbacks = json.load(f)
+    feedbacks.append({
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "message": msg_text
+    })
+    with open(feedback_file, "w", encoding="utf-8") as f:
+        json.dump(feedbacks, f, ensure_ascii=False, indent=2)
+
+    # 如果配置了邮箱，发送邮件通知
+    if FEEDBACK_EMAIL and SMTP_PASSWORD:
+        try:
+            mail = EmailMessage()
+            mail["Subject"] = f"[备考助手反馈] {msg_text[:30]}..."
+            mail["From"] = FEEDBACK_EMAIL
+            mail["To"] = FEEDBACK_EMAIL
+            mail.set_content(f"收到一条用户反馈：\n\n{msg_text}\n\n时间：{feedbacks[-1]['time']}")
+
+            with smtplib.SMTP_SSL("smtp.qq.com", 465) as server:
+                server.login(FEEDBACK_EMAIL, SMTP_PASSWORD)
+                server.send_message(mail)
+        except:
+            pass  # 邮件发送失败不阻塞用户
+
+    return jsonify({"status": "ok"})
 
 @app.route("/")
 def index():

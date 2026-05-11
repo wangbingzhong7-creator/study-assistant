@@ -390,6 +390,87 @@
     margin-top: 8px;
     opacity: 0.5;
   }
+
+  /* feedback */
+  .fb-btn {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    width: 44px; height: 44px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow);
+    transition: all 0.2s ease;
+    z-index: 10;
+  }
+  .fb-btn:hover { border-color: var(--accent); transform: scale(1.06); }
+
+  .fb-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .fb-modal.show { display: flex; }
+
+  .fb-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 24px;
+    width: 90%; max-width: 400px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    animation: fadeUp 0.2s ease;
+  }
+
+  .fb-box h3 { font-size: 16px; margin-bottom: 4px; color: var(--text); }
+  .fb-box .fb-sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+
+  .fb-box textarea {
+    width: 100%; height: 120px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text);
+    font-family: var(--serif);
+    font-size: 14px;
+    padding: 12px;
+    resize: none;
+    outline: none;
+  }
+  .fb-box textarea:focus { border-color: var(--accent); }
+
+  .fb-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+
+  .fb-actions button {
+    padding: 8px 18px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: var(--serif);
+    transition: all 0.15s;
+  }
+  .fb-cancel { background: var(--bg); color: var(--muted); border: 1px solid var(--border) !important; }
+  .fb-submit { background: linear-gradient(135deg, var(--accent), #c4905a); color: white; }
+  .fb-submit:hover { opacity: 0.9; }
+
+  .fb-toast {
+    position: fixed; bottom: 80px; right: 24px;
+    padding: 10px 20px;
+    background: var(--green);
+    color: #fff;
+    border-radius: 12px;
+    font-size: 13px;
+    z-index: 200;
+    animation: fadeUp 0.3s ease;
+    box-shadow: var(--shadow);
+  }
 </style>
 </head>
 <body>
@@ -424,6 +505,20 @@
   </div>
   <p class="hint">Enter 发送 &middot; Shift+Enter 换行</p>
 </footer>
+
+<div class="fb-btn" onclick="openFeedback()" title="意见反馈">&#x1F4AC;</div>
+
+<div class="fb-modal" id="fbModal">
+  <div class="fb-box">
+    <h3>意见反馈</h3>
+    <p class="fb-sub">觉得哪里不好用？想要什么新功能？</p>
+    <textarea id="fbText" placeholder="写下你的想法…"></textarea>
+    <div class="fb-actions">
+      <button class="fb-cancel" onclick="closeFeedback()">取消</button>
+      <button class="fb-submit" onclick="submitFeedback()">发送</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const chat = document.getElementById('chat');
@@ -645,6 +740,33 @@ async function sendMsg() {
   sendBtn.disabled = false;
   input.focus();
   loadStats();
+}
+
+function openFeedback() {
+  document.getElementById('fbModal').classList.add('show');
+}
+function closeFeedback() {
+  document.getElementById('fbModal').classList.remove('show');
+  document.getElementById('fbText').value = '';
+}
+async function submitFeedback() {
+  var text = document.getElementById('fbText').value.trim();
+  if (text.length < 2) return;
+  try {
+    var r = await fetch('/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text })
+    });
+    if (r.ok) {
+      closeFeedback();
+      var t = document.createElement('div');
+      t.className = 'fb-toast';
+      t.textContent = '反馈已发送，谢谢！';
+      document.body.appendChild(t);
+      setTimeout(function(){ t.remove(); }, 2500);
+    }
+  } catch(e) {}
 }
 </script>
 </body>
