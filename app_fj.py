@@ -612,11 +612,56 @@ TOOLS = [
     }}
 ]
 
+# ── 学习数据面板 ────────────────────────────────────
+
+def get_stats():
+    """聚合学习统计数据"""
+    meta_list = list(memory_meta.values())
+    total = len(meta_list)
+
+    # 科目分布
+    subjects = {}
+    for m in meta_list:
+        s = m.get("subject", "其他") or "其他"
+        subjects[s] = subjects.get(s, 0) + 1
+
+    # 来源分布
+    manual = sum(1 for m in meta_list if m.get("source") == "manual")
+    auto = sum(1 for m in meta_list if m.get("source") == "auto")
+
+    # 最多被查阅的
+    most = sorted(meta_list, key=lambda m: m.get("search_count", 0), reverse=True)[:5]
+    top_notes = [{"topic": m["topic"], "hits": m.get("search_count", 0), "subject": m.get("subject", "")}
+                 for m in most if m.get("search_count", 0) > 0]
+
+    # 最近添加的
+    recent = sorted(meta_list, key=lambda m: m.get("created_at", 0), reverse=True)[:5]
+    recent_notes = [{"topic": m["topic"], "subject": m.get("subject", ""),
+                     "date": time.strftime("%m-%d", time.localtime(m.get("created_at", 0)))}
+                    for m in recent]
+
+    # 总搜索次数
+    total_searches = sum(m.get("search_count", 0) for m in meta_list)
+
+    return {
+        "total_notes": total,
+        "manual_notes": manual,
+        "auto_notes": auto,
+        "subjects": subjects,
+        "top_notes": top_notes,
+        "recent_notes": recent_notes,
+        "total_searches": total_searches
+    }
+
 # ── 路由 ──────────────────────────────────────────
 
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
+
+@app.route("/stats")
+def stats():
+    return jsonify(get_stats())
 
 @app.route("/")
 def index():

@@ -338,6 +338,51 @@
     color: var(--green);
   }
 
+  /* stats */
+  .stats-dashboard {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 28px;
+    animation: fadeUp 0.6s ease;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px 20px;
+    min-width: 140px;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .stat-detail {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 2;
+  }
+
+  .stat-detail span {
+    color: var(--gold);
+    font-weight: 500;
+  }
+
   .hint {
     text-align: center;
     font-size: 11px;
@@ -368,6 +413,7 @@
       <div class="chip" onclick="quickSend(this)">&#x1F50D; 搜索英语作文模板</div>
       <div class="chip" onclick="quickSend(this)">&#x1F3AF; 随便出点题考考我</div>
     </div>
+    <div class="stats-dashboard" id="statsDash"></div>
   </div>
 </div>
 
@@ -383,6 +429,38 @@
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
+
+async function loadStats() {
+  try {
+    var resp = await fetch('/stats');
+    var s = await resp.json();
+    if (s.total_notes === 0) return;
+    var dash = document.getElementById('statsDash');
+    if (!dash) return;
+
+    var subjList = [];
+    for (var k in s.subjects) {
+      subjList.push(k + ' ' + s.subjects[k]);
+    }
+
+    dash.innerHTML =
+      '<div class="stat-card"><div class="stat-value">' + s.total_notes + '</div><div class="stat-label">知识笔记</div></div>' +
+      '<div class="stat-card"><div class="stat-value">' + s.total_searches + '</div><div class="stat-label">查阅次数</div></div>' +
+      '<div class="stat-card"><div class="stat-value">' + (s.manual_notes || 0) + '</div><div class="stat-label">手动笔记</div></div>' +
+      '<div class="stat-card"><div class="stat-value">' + (s.auto_notes || 0) + '</div><div class="stat-label">自动记忆</div></div>' +
+      '<div class="stat-detail" style="width:100%">科目分布：' + subjList.join(' &middot; ') + '</div>';
+
+    if (s.top_notes && s.top_notes.length > 0) {
+      var topStr = s.top_notes.map(function(n){return n.topic+'<span>('+n.hits+'次)</span>'}).join('、');
+      dash.innerHTML += '<div class="stat-detail" style="width:100%">最多查阅：' + topStr + '</div>';
+    }
+    if (s.recent_notes && s.recent_notes.length > 0) {
+      var recStr = s.recent_notes.map(function(n){return n.topic+'<span>('+n.date+')</span>'}).join('、');
+      dash.innerHTML += '<div class="stat-detail" style="width:100%">最近添加：' + recStr + '</div>';
+    }
+  } catch(e) {}
+}
+loadStats();
 
 function autoResize(el) {
   el.style.height = 'auto';
@@ -566,6 +644,7 @@ async function sendMsg() {
 
   sendBtn.disabled = false;
   input.focus();
+  loadStats();
 }
 </script>
 </body>
