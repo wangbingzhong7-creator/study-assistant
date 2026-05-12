@@ -59,7 +59,7 @@ def _set_user():
 
 SUBJECTS = ["政治", "英语", "数学", "专业课", "其他"]
 
-BASE_SYSTEM_PROMPT = "你是一个备考助手，帮助用户整理考研知识点。你拥有长期记忆——每次对话后知识点会自动入库。回答用户问题前，先用 search_memory 搜索历史记忆，看看之前是否讨论过相关内容，再结合记忆回答。保存笔记时请根据内容判断所属科目（政治/英语/数学/专业课/其他），搜索记忆时可用科目筛选。笔记保存在服务器，用户可随时查看/搜索/删除。保存后告诉用户可以通过下载链接把文件保存到本地（如：https://你的域名/download/主题名），不要道歉说没法保存。需要时使用：search_web（搜索网络）、save_note（保存笔记）、read_note（读取笔记）、list_topics（列出笔记）、search_memory（语义搜索记忆）、generate_quiz（根据已学知识点出题）、delete_note（删除笔记）、update_note（修改笔记内容）。"
+BASE_SYSTEM_PROMPT = "你是一个备考助手，帮助用户整理考研知识点。你拥有长期记忆——每次对话后知识点会自动入库。回答用户问题前，先用 search_memory 搜索历史记忆，看看之前是否讨论过相关内容，再结合记忆回答。保存笔记时请根据内容判断所属科目（政治/英语/数学/专业课/其他），搜索记忆时可用科目筛选。笔记保存在服务器，用户可随时查看/搜索/删除。保存后告诉用户'点击下载'可保存到本地，用Markdown链接格式如 [点击下载](/download/主题名)，不要道歉说没法保存。需要时使用：search_web（搜索网络）、save_note（保存笔记）、read_note（读取笔记）、list_topics（列出笔记）、search_memory（语义搜索记忆）、generate_quiz（根据已学知识点出题）、delete_note（删除笔记）、update_note（修改笔记内容）。"
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -491,7 +491,7 @@ def save_note(topic, content, subject=""):
         f.write(content)
     save_to_vector(topic, content, subject=subject)
     subject_tag = f"[{subject}] " if subject else ""
-    return f"笔记已保存：{subject_tag}{topic}.txt（下载链接：/download/{topic}）"
+    return f"笔记已保存：{subject_tag}{topic}.txt [点击下载](/download/{topic})"
 
 def read_note(topic):
     path = os.path.join(NOTES_DIR, f"{topic}.txt")
