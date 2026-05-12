@@ -769,9 +769,11 @@ async function submitFeedback() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text })
     });
+    var data = await r.json();
     if (r.ok) {
       closeFeedback();
-      showToast('反馈已发送，谢谢！', false);
+      var msg = data.email_sent ? '反馈已发送，邮件已通知' : '反馈已保存（邮件未配置）';
+      showToast(msg, !data.email_sent);
     } else {
       showToast('发送失败，请稍后重试', true);
     }

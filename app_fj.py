@@ -662,21 +662,30 @@ def feedback():
         json.dump(feedbacks, f, ensure_ascii=False, indent=2)
 
     # 如果配置了邮箱，发送邮件通知
+    email_ok = False
     if FEEDBACK_EMAIL and SMTP_PASSWORD:
-        try:
-            mail = EmailMessage()
-            mail["Subject"] = f"[备考助手反馈] {msg_text[:30]}..."
-            mail["From"] = FEEDBACK_EMAIL
-            mail["To"] = FEEDBACK_EMAIL
-            mail.set_content(f"收到一条用户反馈：\n\n{msg_text}\n\n时间：{feedbacks[-1]['time']}")
-
-            with smtplib.SMTP_SSL("smtp.qq.com", 465) as server:
+        mail = EmailMessage()
+        mail["Subject"] = f"[备考助手反馈] {msg_text[:30]}..."
+        mail["From"] = FEEDBACK_EMAIL
+        mail["To"] = FEEDBACK_EMAIL
+        mail.set_content(f"收到一条用户反馈：\n\n{msg_text}\n\n时间：{feedbacks[-1]['time']}")
+        # 先试 587 + STARTTLS，再试 465 SSL
+        for port, use_ssl in [(587, False), (465, True)]:
+            try:
+                if use_ssl:
+                    server = smtplib.SMTP_SSL("smtp.qq.com", port, timeout=10)
+                else:
+                    server = smtplib.SMTP("smtp.qq.com", port, timeout=10)
+                    server.starttls()
                 server.login(FEEDBACK_EMAIL, SMTP_PASSWORD)
                 server.send_message(mail)
-        except:
-            pass  # 邮件发送失败不阻塞用户
+                server.quit()
+                email_ok = True
+                break
+            except:
+                continue
 
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "email_sent": email_ok})
 
 @app.route("/")
 def index():
