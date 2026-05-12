@@ -317,6 +317,18 @@
   }
   .stat-detail span { color: var(--gold); font-weight: 500; }
 
+  /* auth */
+  .auth-overlay {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 999;
+  }
+  .auth-box {
+    width: 90%; max-width: 340px;
+    text-align: center;
+  }
+
   /* feedback */
   .fb-btn {
     position: fixed; bottom: 24px; left: 24px;
@@ -372,7 +384,23 @@
 </style>
 </head>
 <body>
-<div class="layout">
+
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-box">
+    <div style="font-size:40px;margin-bottom:8px">&#x1F4DA;</div>
+    <h2 style="color:var(--text);margin-bottom:4px">画限的AI备考小助手</h2>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:20px">登录或注册以开始使用</p>
+    <input id="authUser" type="text" placeholder="用户名" autocomplete="off"
+      style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:14px;margin-bottom:10px;outline:none;font-family:var(--serif)">
+    <input id="authPw" type="password" placeholder="密码"
+      style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:14px;margin-bottom:16px;outline:none;font-family:var(--serif)">
+    <p id="authMsg" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none"></p>
+    <button onclick="doLogin()" style="width:100%;padding:12px;background:linear-gradient(135deg,var(--accent),#c4905a);border:none;border-radius:12px;color:white;font-size:15px;cursor:pointer;font-family:var(--serif);margin-bottom:8px">登 录</button>
+    <button onclick="doRegister()" style="width:100%;padding:6px;background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer">还没有账号？注册</button>
+  </div>
+</div>
+
+<div class="layout" id="mainLayout" style="display:none">
 
 <div class="sidebar" id="sidebar">
   <div class="sidebar-header">
@@ -396,11 +424,6 @@
     <div class="icon"></div>
     <h2>你好，我是你的备考助手</h2>
     <p>搜索资料 &middot; 自动笔记 &middot; 语义记忆 &middot; 智能出题<br>告诉我你想学什么，我来帮你</p>
-    <div style="margin-top:16px">
-      <input id="userName" type="text" placeholder="输入你的名字…"
-        style="padding:8px 16px;border:1px solid var(--border);border-radius:20px;background:var(--surface);color:var(--text);font-family:var(--serif);font-size:14px;text-align:center;width:200px;outline:none"
-        onchange="setUser(this.value)">
-    </div>
     <div class="chips">
       <div class="chip" onclick="quickSend(this)">&#x1F4DD; 给我出5道政治选择题</div>
       <div class="chip" onclick="quickSend(this)">&#x1F4DD; 来几道数学题练练</div>
@@ -448,21 +471,71 @@ function aiAv() { return avatarUrl ? '<img src=\"' + avatarUrl + '\" style=\"wid
 
 var currentUser = localStorage.getItem('x-user') || '';
 if (currentUser) {
+  document.getElementById('authOverlay').style.display = 'none';
+  document.getElementById('mainLayout').style.display = 'flex';
   var uel = document.getElementById('userName');
   if (uel) uel.value = currentUser;
 }
-function setUser(name) {
-  currentUser = name.trim();
-  if (currentUser) {
-    localStorage.setItem('x-user', currentUser);
-    location.reload();
-  }
-}
+
 function authHeaders() {
   var h = { 'Content-Type': 'application/json' };
   if (currentUser) h['x-user'] = currentUser;
   return h;
 }
+
+function showAuthMsg(msg) {
+  var m = document.getElementById('authMsg');
+  m.textContent = msg;
+  m.style.display = 'block';
+}
+
+async function doLogin() {
+  var u = document.getElementById('authUser').value.trim();
+  var p = document.getElementById('authPw').value;
+  if (!u || !p) { showAuthMsg('请填写用户名和密码'); return; }
+  try {
+    var r = await fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    var d = await r.json();
+    if (d.status === 'ok') {
+      currentUser = u;
+      localStorage.setItem('x-user', u);
+      document.getElementById('authOverlay').style.display = 'none';
+      document.getElementById('mainLayout').style.display = 'flex';
+      location.reload();
+    } else {
+      showAuthMsg(d.msg);
+    }
+  } catch(e) { showAuthMsg('网络错误'); }
+}
+
+async function doRegister() {
+  var u = document.getElementById('authUser').value.trim();
+  var p = document.getElementById('authPw').value;
+  if (!u || p.length < 3) { showAuthMsg('密码至少3位'); return; }
+  try {
+    var r = await fetch('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    var d = await r.json();
+    if (d.status === 'ok') {
+      showAuthMsg('注册成功，请登录');
+    } else {
+      showAuthMsg(d.msg);
+    }
+  } catch(e) { showAuthMsg('网络错误'); }
+}
+
+function handleAuthKey(e) {
+  if (e.key === 'Enter') doLogin();
+}
+
+document.getElementById('authPw').addEventListener('keydown', handleAuthKey);
 
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');

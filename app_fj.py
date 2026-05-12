@@ -4,6 +4,7 @@ import requests
 import json
 import os
 import time
+import hashlib
 import smtplib
 from email.message import EmailMessage
 import chromadb
@@ -20,6 +21,24 @@ AVATAR_URL = os.environ.get("AVATAR_URL", "")
 URL = "https://api.deepseek.com/chat/completions"
 HEADERS = {"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"}
 DATA_DIR = os.environ.get("DATA_DIR", ".")
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
+
+def _hash_pw(password, salt=None):
+    """简单加盐哈希"""
+    if salt is None:
+        salt = os.urandom(16).hex()
+    h = hashlib.sha256((salt + password).encode()).hexdigest()
+    return f"{salt}:{h}"
+
+def _load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def _save_users(users):
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
 
 # 用户隔离：所有数据路径在 before_request 中动态切换
 NOTES_DIR = os.path.join(DATA_DIR, "notes")
@@ -768,6 +787,34 @@ def health():
 @app.route("/config")
 def site_config():
     return jsonify({"avatar_url": AVATAR_URL})
+
+@app.route("/auth/register", methods=["POST"])
+def auth_register():
+    data = request.get_json()
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    if not username or len(password) < 3:
+        return jsonify({"status": "error", "msg": "用户名不能为空，密码至少3位"}), 400
+    users = _load_users()
+    if username in users:
+        return jsonify({"status": "error", "msg": "用户名已存在"}), 400
+    users[username] = _hash_pw(password)
+    _save_users(users)
+    return jsonify({"status": "ok"})
+
+@app.route("/auth/login", methods=["POST"])
+def auth_login():
+    data = request.get_json()
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    users = _load_users()
+    stored = users.get(username, "")
+    if not stored:
+        return jsonify({"status": "error", "msg": "用户名不存在"}), 401
+    salt, hash_val = stored.split(":", 1)
+    if _hash_pw(password, salt) == stored:
+        return jsonify({"status": "ok", "username": username})
+    return jsonify({"status": "error", "msg": "密码错误"}), 401
 
 @app.route("/download/<topic>")
 def download_note(topic):
