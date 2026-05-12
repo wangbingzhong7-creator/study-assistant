@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, g
+from flask import Flask, request, jsonify, send_from_directory
 from flask import Response, stream_with_context
 import requests
 import json
@@ -51,9 +51,10 @@ def _switch_to_user(user):
 
 @app.before_request
 def _set_user():
+    global _current_user
     u = request.headers.get("x-user", "default")
-    if not hasattr(g, 'user') or g.user != u:
-        g.user = u
+    if _current_user != u:
+        _current_user = u
         _switch_to_user(u)
 
 SUBJECTS = ["政治", "英语", "数学", "专业课", "其他"]
@@ -260,10 +261,12 @@ VECTOR_DIR = os.path.join(DATA_DIR, "vector_db")
 
 # 使用 ChromaDB 内置 ONNX 嵌入（免 PyTorch，内存仅 ~50MB）
 _ef = embedding_functions.DefaultEmbeddingFunction()
+_current_user = "default"  # 在 before_request 中更新
+
 _user_collections = {}
 def _get_collection():
     """返回当前用户的 ChromaDB collection"""
-    u = getattr(g, 'user', 'default')
+    u = _current_user
     if u not in _user_collections:
         vdir = os.path.join(DATA_DIR, "users", u, "vector_db")
         client = chromadb.PersistentClient(path=vdir)
