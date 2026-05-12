@@ -749,10 +749,19 @@ def sessions_api():
     global conversation_history, sessions_meta
 
     if request.method == "GET":
-        # 列表
+        # 列表 + 当前会话历史（用于前端恢复聊天界面）
+        hist = []
+        sid = sessions_meta.get("current", "")
+        if sid:
+            full = _load_session_history(sid)
+            # 只返回 user/assistant 消息（跳过 system 和 tool）
+            for m in full[1:]:  # 跳过 system prompt
+                if m["role"] in ("user", "assistant"):
+                    hist.append({"role": m["role"], "content": m["content"][:500]})
         return jsonify({
-            "current": sessions_meta.get("current", ""),
-            "list": sessions_meta.get("list", [])
+            "current": sid,
+            "list": sessions_meta.get("list", []),
+            "history": hist
         })
 
     elif request.method == "POST":

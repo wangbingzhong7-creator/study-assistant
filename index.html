@@ -446,12 +446,10 @@ const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 
 // ---- 会话管理 ----
-async function loadSessions() {
-  try {
-    var r = await fetch('/sessions');
-    var data = await r.json();
+function loadSessions() {
+  return fetch('/sessions').then(function(r){ return r.json(); }).then(function(data){
     var list = document.getElementById('sessionList');
-    if (!list) return;
+    if (!list) return data;
     var html = '';
     for (var i = 0; i < data.list.length; i++) {
       var s = data.list[i];
@@ -464,7 +462,8 @@ async function loadSessions() {
         '</div>';
     }
     list.innerHTML = html;
-  } catch(e) {}
+    return data;
+  }).catch(function(){ return null; });
 }
 
 async function newSession() {
@@ -499,7 +498,21 @@ function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
 }
 
-loadSessions();
+async function renderHistory() {
+  try {
+    var r = await fetch('/sessions');
+    var data = await r.json();
+    if (data.history && data.history.length > 0) {
+      var welcome = document.querySelector('.welcome');
+      if (welcome) welcome.remove();
+      for (var i = 0; i < data.history.length; i++) {
+        var m = data.history[i];
+        addMsg(m.role, m.content);
+      }
+    }
+  } catch(e) {}
+}
+loadSessions().then(function(){ renderHistory(); });
 
 // ---- 统计数据 ----
 async function loadStats() {
