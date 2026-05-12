@@ -16,6 +16,7 @@ TAVILY_KEY = os.environ.get("TAVILY_KEY", "")
 # 反馈邮箱配置（QQ邮箱SMTP）
 FEEDBACK_EMAIL = os.environ.get("FEEDBACK_EMAIL", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+AVATAR_URL = os.environ.get("AVATAR_URL", "")
 URL = "https://api.deepseek.com/chat/completions"
 HEADERS = {"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"}
 DATA_DIR = os.environ.get("DATA_DIR", ".")
@@ -727,6 +728,10 @@ def get_stats():
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
+
+@app.route("/config")
+def site_config():
+    return jsonify({"avatar_url": AVATAR_URL})
 
 @app.route("/stats")
 def stats():

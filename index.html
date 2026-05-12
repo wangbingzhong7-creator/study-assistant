@@ -434,6 +434,13 @@
 </div>
 
 <script>
+var avatarUrl = '';
+(async function(){
+  try { var r = await fetch('/config'); var d = await r.json(); avatarUrl = d.avatar_url || ''; } catch(e) {}
+})();
+
+function aiAv() { return avatarUrl ? '<img src=\"' + avatarUrl + '\" style=\"width:100%;height:100%;border-radius:12px;object-fit:cover\">' : ''; }
+
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
@@ -576,7 +583,7 @@ function addMsg(role, content) {
   div.className = 'msg ' + role;
   var av = document.createElement('div');
   av.className = 'avatar ' + (role === 'user' ? 'user-av' : 'ai');
-  av.textContent = role === 'user' ? '你' : '';
+  if (role === 'user') { av.textContent = '你'; } else { av.innerHTML = aiAv(); }
   var bubble = document.createElement('div');
   bubble.className = 'bubble';
 
@@ -611,7 +618,7 @@ function addThinking() {
   var wrap = document.createElement('div');
   wrap.className = 'msg ai';
   wrap.id = 'thinking';
-  wrap.innerHTML = '<div class="avatar ai">🤖</div>' +
+  wrap.innerHTML = '<div class="avatar ai">'+aiAv()+'</div>' +
     '<div class="thinking">' +
       '<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>' +
       '正在思考…' +
@@ -634,7 +641,7 @@ async function sendMsg() {
   aiDiv.className = 'msg ai';
   var av = document.createElement('div');
   av.className = 'avatar ai';
-  av.textContent = '';
+  av.innerHTML = aiAv();
   var bubble = document.createElement('div');
   bubble.className = 'bubble';
   aiDiv.appendChild(av);
