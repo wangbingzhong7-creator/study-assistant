@@ -145,6 +145,8 @@ def get_current_history():
 def get_current_session_id():
     return sessions_meta.get("current", "")
 
+os.makedirs(NOTES_DIR, exist_ok=True)
+os.makedirs(SESSIONS_DIR, exist_ok=True)
 migrate_to_sessions()
 conversation_history = get_current_history()
 
