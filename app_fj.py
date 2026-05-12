@@ -784,6 +784,11 @@ def get_stats():
 def health():
     return jsonify({"status": "ok"})
 
+@app.route("/auth/check")
+def auth_check():
+    u = request.cookies.get("x-user", "")
+    return jsonify({"username": u})
+
 @app.route("/config")
 def site_config():
     return jsonify({"avatar_url": AVATAR_URL})

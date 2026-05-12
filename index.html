@@ -469,13 +469,22 @@ var avatarUrl = '';
 
 function aiAv() { return avatarUrl ? '<img src=\"' + avatarUrl + '\" style=\"width:100%;height:100%;border-radius:12px;object-fit:cover\">' : ''; }
 
-var currentUser = localStorage.getItem('x-user') || '';
-if (currentUser) {
-  document.getElementById('authOverlay').style.display = 'none';
-  document.getElementById('mainLayout').style.display = 'flex';
-  var uel = document.getElementById('userName');
-  if (uel) uel.value = currentUser;
+// 清除旧的localStorage（新系统改用cookie）
+var currentUser = '';
+localStorage.removeItem('x-user');
+
+async function checkAuth() {
+  try {
+    var r = await fetch('/auth/check');
+    var d = await r.json();
+    if (d.username) {
+      currentUser = d.username;
+      document.getElementById('authOverlay').style.display = 'none';
+      document.getElementById('mainLayout').style.display = 'flex';
+    }
+  } catch(e) {}
 }
+checkAuth();
 
 function authHeaders() {
   var h = { 'Content-Type': 'application/json' };
@@ -501,10 +510,6 @@ async function doLogin() {
     });
     var d = await r.json();
     if (d.status === 'ok') {
-      currentUser = u;
-      localStorage.setItem('x-user', u);
-      document.getElementById('authOverlay').style.display = 'none';
-      document.getElementById('mainLayout').style.display = 'flex';
       location.reload();
     } else {
       showAuthMsg(d.msg);
