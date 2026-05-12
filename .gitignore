@@ -179,9 +179,11 @@ cython_debug/
 # Runtime data (user-generated, should not be in version control)
 vector_db/
 notes/
+sessions/
 history.json
 context_summary.json
 memory_meta.json
+sessions.json
 
 # Cursor
 #  Cursor is an AI-powered code editor.`.cursorignore` specifies files/directories to
