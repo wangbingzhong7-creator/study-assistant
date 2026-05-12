@@ -393,7 +393,7 @@
 
 <div id="chat">
   <div class="welcome">
-    <div class="icon">&#x1F916;</div>
+    <div class="icon"></div>
     <h2>你好，我是你的备考助手</h2>
     <p>搜索资料 &middot; 自动笔记 &middot; 语义记忆 &middot; 智能出题<br>告诉我你想学什么，我来帮你</p>
     <div class="chips">
@@ -576,7 +576,7 @@ function addMsg(role, content) {
   div.className = 'msg ' + role;
   var av = document.createElement('div');
   av.className = 'avatar ' + (role === 'user' ? 'user-av' : 'ai');
-  av.textContent = role === 'user' ? '你' : '🤖';
+  av.textContent = role === 'user' ? '你' : '';
   var bubble = document.createElement('div');
   bubble.className = 'bubble';
 
@@ -634,7 +634,7 @@ async function sendMsg() {
   aiDiv.className = 'msg ai';
   var av = document.createElement('div');
   av.className = 'avatar ai';
-  av.textContent = '🤖';
+  av.textContent = '';
   var bubble = document.createElement('div');
   bubble.className = 'bubble';
   aiDiv.appendChild(av);
