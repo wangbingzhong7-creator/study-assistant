@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g
 from flask import Response, stream_with_context
 import requests
 import json
@@ -20,14 +20,41 @@ AVATAR_URL = os.environ.get("AVATAR_URL", "")
 URL = "https://api.deepseek.com/chat/completions"
 HEADERS = {"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"}
 DATA_DIR = os.environ.get("DATA_DIR", ".")
-NOTES_DIR = os.path.join(DATA_DIR, "notes")
 
+# 用户隔离：所有数据路径在 before_request 中动态切换
+NOTES_DIR = os.path.join(DATA_DIR, "notes")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 MEMORY_META_FILE = os.path.join(DATA_DIR, "memory_meta.json")
 CONTEXT_SUMMARY_FILE = os.path.join(DATA_DIR, "context_summary.json")
 SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
 SESSIONS_META_FILE = os.path.join(DATA_DIR, "sessions.json")
-MAX_HISTORY_PAIRS = 8  # 保留最近 8 轮完整对话，更早的压缩为摘要
+MAX_HISTORY_PAIRS = 8
+
+def _switch_to_user(user):
+    """切换所有数据路径到指定用户目录，并重新加载该用户的状态"""
+    global NOTES_DIR, HISTORY_FILE, MEMORY_META_FILE, CONTEXT_SUMMARY_FILE, SESSIONS_DIR, SESSIONS_META_FILE
+    global memory_meta, context_summary, sessions_meta, conversation_history
+    d = os.path.join(DATA_DIR, "users", user)
+    NOTES_DIR = os.path.join(d, "notes")
+    HISTORY_FILE = os.path.join(d, "history.json")
+    MEMORY_META_FILE = os.path.join(d, "memory_meta.json")
+    CONTEXT_SUMMARY_FILE = os.path.join(d, "context_summary.json")
+    SESSIONS_DIR = os.path.join(d, "sessions")
+    SESSIONS_META_FILE = os.path.join(d, "sessions.json")
+    os.makedirs(NOTES_DIR, exist_ok=True)
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    memory_meta = load_meta()
+    context_summary = load_context_summary()
+    sessions_meta = _load_sessions_meta()
+    migrate_to_sessions()
+    conversation_history = get_current_history()
+
+@app.before_request
+def _set_user():
+    u = request.headers.get("x-user", "default")
+    if not hasattr(g, 'user') or g.user != u:
+        g.user = u
+        _switch_to_user(u)
 
 SUBJECTS = ["政治", "英语", "数学", "专业课", "其他"]
 
@@ -56,9 +83,6 @@ def save_history():
     else:
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(conversation_history, f, ensure_ascii=False, indent=2)
-
-os.makedirs(NOTES_DIR, exist_ok=True)
-os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 # ── 多会话管理 ─────────────────────────────────────
 
@@ -234,8 +258,15 @@ VECTOR_DIR = os.path.join(DATA_DIR, "vector_db")
 
 # 使用 ChromaDB 内置 ONNX 嵌入（免 PyTorch，内存仅 ~50MB）
 _ef = embedding_functions.DefaultEmbeddingFunction()
-chroma_client = chromadb.PersistentClient(path=VECTOR_DIR)
-collection = chroma_client.get_or_create_collection(name="study_notes", embedding_function=_ef)
+_user_collections = {}
+def _get_collection():
+    """返回当前用户的 ChromaDB collection"""
+    u = getattr(g, 'user', 'default')
+    if u not in _user_collections:
+        vdir = os.path.join(DATA_DIR, "users", u, "vector_db")
+        client = chromadb.PersistentClient(path=vdir)
+        _user_collections[u] = client.get_or_create_collection(name="study_notes", embedding_function=_ef)
+    return _user_collections[u]
 
 def _sim_from_dist(dist):
     """ChromaDB ONNX 返回余弦距离，转成相似度 [0,1]"""
@@ -273,7 +304,7 @@ def _record_search(note_ids):
     for nid in note_ids:
         if nid not in memory_meta:
             # 从向量库查元数据补齐
-            info = collection.get(ids=[nid])
+            info = _get_collection().get(ids=[nid])
             topic = "未知"
             source = "migrated"
             if info['metadatas'] and info['metadatas'][0]:
@@ -303,10 +334,10 @@ def _importance(note_id, content_len):
 
 def _check_duplicate(content, threshold=0.75):
     """检查是否已存在高度相似的内容"""
-    if collection.count() == 0:
+    if _get_collection().count() == 0:
         return False, None
     try:
-        results = collection.query(query_texts=[content], n_results=1, include=['metadatas', 'distances'])
+        results = _get_collection().query(query_texts=[content], n_results=1, include=['metadatas', 'distances'])
         ids = results.get('ids', [[]])[0]
         if not ids:
             return False, None
@@ -322,8 +353,8 @@ def _check_duplicate(content, threshold=0.75):
 def search_memory(query, n=3, subject=""):
     """语义搜索笔记，按相似度×重要性权重排序，可按科目过滤"""
     fetch_n = max(n * 3, 10)
-    candidates = collection.query(
-        query_texts=[query], n_results=max(fetch_n, collection.count()),
+    candidates = _get_collection().query(
+        query_texts=[query], n_results=max(fetch_n, _get_collection().count()),
         include=['distances', 'documents', 'metadatas']
     )
     if not candidates['documents'][0]:
@@ -363,18 +394,18 @@ def search_memory(query, n=3, subject=""):
 def save_to_vector(topic, content, source="manual", subject=""):
     """将笔记存入向量数据库，记录元数据（含科目分类）"""
     note_id = topic.replace(" ", "_")
-    existing = collection.get(ids=[note_id])
+    existing = _get_collection().get(ids=[note_id])
     if existing['ids']:
-        collection.update(ids=[note_id], documents=[content],
+        _get_collection().update(ids=[note_id], documents=[content],
                           metadatas=[{"topic": topic, "source": source, "subject": subject}])
     else:
-        collection.add(ids=[note_id], documents=[content],
+        _get_collection().add(ids=[note_id], documents=[content],
                        metadatas=[{"topic": topic, "source": source, "subject": subject}])
     _ensure_meta(note_id, topic, source, subject)
 
 def migrate_existing_notes():
     """将已有的文件笔记迁移到向量数据库"""
-    existing_ids = set(collection.get()['ids'])
+    existing_ids = set(_get_collection().get()['ids'])
     for fname in os.listdir(NOTES_DIR):
         if not fname.endswith(".txt"):
             continue
@@ -384,7 +415,7 @@ def migrate_existing_notes():
             continue
         with open(os.path.join(NOTES_DIR, fname), "r", encoding="utf-8") as f:
             content = f.read()
-        collection.add(ids=[note_id], documents=[content], metadatas=[{"topic": topic, "source": "migrated"}])
+        _get_collection().add(ids=[note_id], documents=[content], metadatas=[{"topic": topic, "source": "migrated"}])
         _ensure_meta(note_id, topic, "migrated")
 
 migrate_existing_notes()
@@ -440,7 +471,7 @@ def auto_memorize(user_msg, assistant_msg):
             if is_dup:
                 continue
             note_id = f"auto_{int(time.time()*1000)}_{topic.replace(' ', '_')[:30]}"
-            collection.add(
+            _get_collection().add(
                 ids=[note_id],
                 documents=[full_content],
                 metadatas=[{"topic": topic, "source": "auto", "subject": subject}]
@@ -468,7 +499,7 @@ def delete_note(topic):
     """删除指定主题的笔记（文件和向量库）"""
     # 精确匹配笔记ID
     note_id = topic.replace(" ", "_")
-    all_ids = collection.get()['ids']
+    all_ids = _get_collection().get()['ids']
 
     # 尝试精确匹配
     matched = [nid for nid in all_ids if nid == note_id]
@@ -480,7 +511,7 @@ def delete_note(topic):
         return f"找不到笔记「{topic}」，可能已被删除或主题名不准确。请用 list_topics 查看已有笔记。"
 
     for nid in matched:
-        collection.delete(ids=[nid])
+        _get_collection().delete(ids=[nid])
         if nid in memory_meta:
             del memory_meta[nid]
         save_meta(memory_meta)
@@ -495,14 +526,14 @@ def delete_note(topic):
 def update_note(topic, content, subject=""):
     """更新已有笔记的内容，找不到则创建新笔记"""
     note_id = topic.replace(" ", "_")
-    all_ids = collection.get()['ids']
+    all_ids = _get_collection().get()['ids']
 
     # 先删旧数据再写入
     matched = [nid for nid in all_ids if nid == note_id]
     if not matched:
         matched = [nid for nid in all_ids if topic in nid]
     for nid in matched:
-        collection.delete(ids=[nid])
+        _get_collection().delete(ids=[nid])
         if nid in memory_meta:
             del memory_meta[nid]
 
@@ -520,7 +551,7 @@ def list_topics(subject=""):
     """列出已有笔记，可按科目筛选，返回按科目分组的结果"""
     # 从向量库和内存元数据汇总
     subjects = {}
-    all_ids = collection.get()['ids']
+    all_ids = _get_collection().get()['ids']
     for nid in all_ids:
         meta = memory_meta.get(nid, {})
         s = meta.get("subject", "其他") or "其他"
