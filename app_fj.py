@@ -5,6 +5,8 @@ import json
 import os
 import time
 import hashlib
+import zipfile
+import io
 import smtplib
 from email.message import EmailMessage
 import chromadb
@@ -22,6 +24,25 @@ URL = "https://api.deepseek.com/chat/completions"
 HEADERS = {"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"}
 DATA_DIR = os.environ.get("DATA_DIR", ".")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
+DATA_REPO = os.environ.get("DATA_REPO", "")  # 如 https://ghp_xxx@github.com/user/data.git
+_data_save_counter = 0
+
+def _data_git_save():
+    """每 3 次保存自动 push 数据到 Git 仓库"""
+    global _data_save_counter
+    _data_save_counter += 1
+    if _data_save_counter % 3 != 0 or not DATA_REPO:
+        return
+    try:
+        import subprocess
+        repo_dir = DATA_DIR
+        if not os.path.exists(os.path.join(repo_dir, ".git")):
+            subprocess.run(["git", "clone", DATA_REPO, repo_dir], capture_output=True, timeout=30)
+        subprocess.run(["git", "-C", repo_dir, "add", "-A"], capture_output=True, timeout=10)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-m", "auto-save"], capture_output=True, timeout=10)
+        subprocess.run(["git", "-C", repo_dir, "push"], capture_output=True, timeout=30)
+    except:
+        pass  # Git 操作失败不影响主流程
 
 def _hash_pw(password, salt=None):
     """简单加盐哈希"""
@@ -822,6 +843,39 @@ def auth_login():
         resp.set_cookie("x-user", username, max_age=60*60*24*365, httponly=True)
         return resp
     return jsonify({"status": "error", "msg": "密码错误"}), 401
+
+@app.route("/export")
+def export_data():
+    """下载当前用户的所有数据为zip"""
+    buf = io.BytesIO()
+    u = _current_user
+    user_dir = os.path.join(DATA_DIR, "users", u)
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(user_dir):
+            for fn in files:
+                fpath = os.path.join(root, fn)
+                arcname = os.path.relpath(fpath, user_dir)
+                zf.write(fpath, arcname)
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename=backup-{u}-{time.strftime('%m%d-%H%M')}.zip"})
+
+@app.route("/import", methods=["POST"])
+def import_data():
+    """恢复用户数据（上传zip）"""
+    if "file" not in request.files:
+        return jsonify({"status": "error", "msg": "请上传zip文件"}), 400
+    f = request.files["file"]
+    u = _current_user
+    user_dir = os.path.join(DATA_DIR, "users", u)
+    try:
+        with zipfile.ZipFile(f) as zf:
+            zf.extractall(user_dir)
+        # 重新加载该用户所有状态
+        _switch_to_user(u)
+        return jsonify({"status": "ok", "msg": "数据已恢复，请刷新页面"})
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)}), 400
 
 @app.route("/download/<topic>")
 def download_note(topic):

@@ -416,7 +416,12 @@
   <button class="hamburger" onclick="toggleSidebar()">&#x2630;</button>
   <div class="logo">&#x1F4DA;</div>
   <h1>画限的AI备考小助手</h1>
-  <span class="subtitle">AGENT &middot; POWERED BY DEEPSEEK</span>
+  <span class="subtitle">
+    <a href="/export" style="color:var(--muted);text-decoration:none;font-size:10px" title="导出数据">&#x1F4E5; 导出</a>
+    &middot;
+    <label for="importFile" style="color:var(--muted);cursor:pointer;font-size:10px" title="导入数据">&#x1F4E4; 导入</label>
+    <input id="importFile" type="file" accept=".zip" style="display:none" onchange="doImport(this)">
+  </span>
 </header>
 
 <div id="chat">
@@ -613,6 +618,21 @@ async function renderHistory() {
     }
   } catch(e) {}
 }
+async function doImport(input) {
+  var file = input.files[0];
+  if (!file) return;
+  if (!confirm('导入将覆盖当前数据，确定继续？')) { input.value = ''; return; }
+  var form = new FormData();
+  form.append('file', file);
+  try {
+    var r = await fetch('/import', { method: 'POST', body: form });
+    var d = await r.json();
+    if (d.status === 'ok') location.reload();
+    else alert(d.msg);
+  } catch(e) { alert('导入失败'); }
+  input.value = '';
+}
+
 loadSessions().then(function(){ renderHistory(); });
 
 // ---- 统计数据 ----
