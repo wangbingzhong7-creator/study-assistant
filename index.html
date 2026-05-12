@@ -515,7 +515,7 @@
   /* feedback */
   .fb-btn {
     position: fixed;
-    bottom: 24px; right: 24px;
+    bottom: 24px; left: 24px;
     width: 44px; height: 44px;
     background: var(--surface);
     border: 1px solid var(--border);
@@ -582,7 +582,7 @@
   .fb-submit:hover { opacity: 0.9; }
 
   .fb-toast {
-    position: fixed; bottom: 80px; right: 24px;
+    position: fixed; bottom: 80px; left: 24px;
     padding: 10px 20px;
     background: var(--green);
     color: #fff;
@@ -986,5 +986,3 @@ async function submitFeedback() {
 </script>
 </div><!-- .main-area -->
 </div><!-- .layout -->
-
-<div class="fb-btn" onclick="openFeedback()" title="意见反馈">&#x1F4AC;</div>
