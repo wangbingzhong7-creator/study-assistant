@@ -762,7 +762,9 @@ async function sendMsg() {
   aiDiv.appendChild(av);
   aiDiv.appendChild(bubble);
   chat.appendChild(aiDiv);
-  addThinking();
+  // 思考动画放入气泡内，不再单独创建
+  bubble.innerHTML = '<div class="thinking" style="border:none;box-shadow:none;padding:8px 0">' +
+    '<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>正在思考…</div>';
 
   try {
     var resp = await fetch('/chat_stream', {
@@ -774,7 +776,7 @@ async function sendMsg() {
     var decoder = new TextDecoder();
     var buf = '';
     var textContent = '';
-    document.getElementById('thinking')?.remove();
+    bubble.innerHTML = '';
 
     while (true) {
       var chunk = await reader.read();
@@ -807,7 +809,6 @@ async function sendMsg() {
       }
     }
   } catch (e) {
-    document.getElementById('thinking')?.remove();
     bubble.innerHTML = '连接失败，请重试。';
   }
   sendBtn.disabled = false;
