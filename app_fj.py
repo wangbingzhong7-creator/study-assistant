@@ -771,10 +771,16 @@ def site_config():
 
 @app.route("/download/<topic>")
 def download_note(topic):
+    # 先精确匹配
     path = os.path.join(NOTES_DIR, f"{topic}.txt")
-    if not os.path.exists(path):
-        return "笔记不存在", 404
-    return send_from_directory(NOTES_DIR, f"{topic}.txt", as_attachment=True, download_name=f"{topic}.txt")
+    if os.path.exists(path):
+        return send_from_directory(NOTES_DIR, f"{topic}.txt", as_attachment=True, download_name=f"{topic}.txt")
+    # 模糊匹配：topic 可能只是文件名的一部分
+    if os.path.exists(NOTES_DIR):
+        for fname in os.listdir(NOTES_DIR):
+            if fname.endswith(".txt") and topic in fname:
+                return send_from_directory(NOTES_DIR, fname, as_attachment=True, download_name=fname)
+    return "笔记不存在", 404
 
 @app.route("/stats")
 def stats():
