@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask import Response, stream_with_context
 import requests
 import json
@@ -71,7 +71,7 @@ def _switch_to_user(user):
 @app.before_request
 def _set_user():
     global _current_user
-    u = request.headers.get("x-user", "default")
+    u = request.headers.get("x-user") or request.cookies.get("x-user") or "default"
     if _current_user != u:
         _current_user = u
         _switch_to_user(u)
@@ -813,7 +813,9 @@ def auth_login():
         return jsonify({"status": "error", "msg": "用户名不存在"}), 401
     salt, hash_val = stored.split(":", 1)
     if _hash_pw(password, salt) == stored:
-        return jsonify({"status": "ok", "username": username})
+        resp = make_response(jsonify({"status": "ok", "username": username}))
+        resp.set_cookie("x-user", username, max_age=60*60*24*365, httponly=True)
+        return resp
     return jsonify({"status": "error", "msg": "密码错误"}), 401
 
 @app.route("/download/<topic>")
