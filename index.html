@@ -749,9 +749,20 @@ function closeFeedback() {
   document.getElementById('fbModal').classList.remove('show');
   document.getElementById('fbText').value = '';
 }
+function showToast(msg, isError) {
+  var t = document.createElement('div');
+  t.className = 'fb-toast';
+  if (isError) t.style.background = 'var(--red)';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ t.remove(); }, 2500);
+}
 async function submitFeedback() {
   var text = document.getElementById('fbText').value.trim();
-  if (text.length < 2) return;
+  if (text.length < 2) {
+    showToast('请至少输入2个字', true);
+    return;
+  }
   try {
     var r = await fetch('/feedback', {
       method: 'POST',
@@ -760,13 +771,13 @@ async function submitFeedback() {
     });
     if (r.ok) {
       closeFeedback();
-      var t = document.createElement('div');
-      t.className = 'fb-toast';
-      t.textContent = '反馈已发送，谢谢！';
-      document.body.appendChild(t);
-      setTimeout(function(){ t.remove(); }, 2500);
+      showToast('反馈已发送，谢谢！', false);
+    } else {
+      showToast('发送失败，请稍后重试', true);
     }
-  } catch(e) {}
+  } catch(e) {
+    showToast('网络异常，请稍后重试', true);
+  }
 }
 </script>
 </body>
