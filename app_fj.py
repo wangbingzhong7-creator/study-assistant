@@ -24,6 +24,8 @@ NOTES_DIR = os.path.join(DATA_DIR, "notes")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 MEMORY_META_FILE = os.path.join(DATA_DIR, "memory_meta.json")
 CONTEXT_SUMMARY_FILE = os.path.join(DATA_DIR, "context_summary.json")
+SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
+SESSIONS_META_FILE = os.path.join(DATA_DIR, "sessions.json")
 MAX_HISTORY_PAIRS = 8  # 保留最近 8 轮完整对话，更早的压缩为摘要
 
 SUBJECTS = ["政治", "英语", "数学", "专业课", "其他"]
@@ -37,11 +39,100 @@ def load_history():
     return [{"role": "system", "content": BASE_SYSTEM_PROMPT}]
 
 def save_history():
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(conversation_history, f, ensure_ascii=False, indent=2)
+    sid = get_current_session_id()
+    if sid:
+        _save_session_history(sid, conversation_history)
+        # 更新会话预览（最后一条助手消息的前30字）
+        for s in sessions_meta["list"]:
+            if s["id"] == sid:
+                for m in reversed(conversation_history):
+                    if m["role"] == "assistant":
+                        s["preview"] = m["content"][:30]
+                        s["title"] = s.get("title", "默认会话")
+                        break
+                _save_sessions_meta()
+                break
+    else:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(conversation_history, f, ensure_ascii=False, indent=2)
 
 os.makedirs(NOTES_DIR, exist_ok=True)
-conversation_history = load_history()
+os.makedirs(SESSIONS_DIR, exist_ok=True)
+
+# ── 多会话管理 ─────────────────────────────────────
+
+def _load_sessions_meta():
+    if os.path.exists(SESSIONS_META_FILE):
+        with open(SESSIONS_META_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"current": "", "list": []}
+
+def _save_sessions_meta():
+    with open(SESSIONS_META_FILE, "w", encoding="utf-8") as f:
+        json.dump(sessions_meta, f, ensure_ascii=False, indent=2)
+
+sessions_meta = _load_sessions_meta()
+
+def migrate_to_sessions():
+    """首次启动：把旧的 history.json 迁移为默认会话"""
+    global sessions_meta
+    if sessions_meta.get("list"):
+        return  # 已有会话，跳过迁移
+    sid = f"session_{int(time.time())}"
+    session = {
+        "id": sid,
+        "title": "默认会话",
+        "created_at": int(time.time()),
+        "preview": ""
+    }
+    sessions_meta["list"].append(session)
+    sessions_meta["current"] = sid
+    # 迁移旧历史
+    old_history = load_history()
+    _save_session_history(sid, old_history)
+    _save_sessions_meta()
+    # 删除旧 history.json
+    if os.path.exists(HISTORY_FILE):
+        os.remove(HISTORY_FILE)
+
+def _get_session_path(sid):
+    return os.path.join(SESSIONS_DIR, f"{sid}.json")
+
+def _load_session_history(sid):
+    path = _get_session_path(sid)
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return [{"role": "system", "content": BASE_SYSTEM_PROMPT}]
+
+def _save_session_history(sid, history):
+    with open(_get_session_path(sid), "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+def get_current_history():
+    """返回当前会话的对话历史"""
+    sid = sessions_meta.get("current", "")
+    if sid:
+        return _load_session_history(sid)
+    # fallback: 用旧的全局变量
+    return load_history()
+
+def get_current_session_id():
+    return sessions_meta.get("current", "")
+
+migrate_to_sessions()
+conversation_history = get_current_history()
+
+def _auto_name_session(user_msg):
+    """用第一条用户消息给会话命名"""
+    sid = get_current_session_id()
+    if not sid:
+        return
+    for s in sessions_meta["list"]:
+        if s["id"] == sid and s["title"] in ("新会话", "默认会话"):
+            s["title"] = user_msg[:15]
+            _save_sessions_meta()
+            break
 
 # ── 上下文压缩 ─────────────────────────────────────
 
@@ -641,6 +732,64 @@ def health():
 def stats():
     return jsonify(get_stats())
 
+@app.route("/sessions", methods=["GET", "POST", "DELETE"])
+def sessions_api():
+    global conversation_history, sessions_meta
+
+    if request.method == "GET":
+        # 列表
+        return jsonify({
+            "current": sessions_meta.get("current", ""),
+            "list": sessions_meta.get("list", [])
+        })
+
+    elif request.method == "POST":
+        # 创建新会话
+        data = request.get_json() or {}
+        title = data.get("title", "").strip() or "新会话"
+        sid = f"session_{int(time.time()*1000)}"
+        sess = {
+            "id": sid,
+            "title": title,
+            "created_at": int(time.time()),
+            "preview": ""
+        }
+        sessions_meta["list"].append(sess)
+        sessions_meta["current"] = sid
+        _save_session_history(sid, [{"role": "system", "content": BASE_SYSTEM_PROMPT}])
+        _save_sessions_meta()
+        conversation_history = _load_session_history(sid)
+        return jsonify({"status": "ok", "session": sess})
+
+    elif request.method == "DELETE":
+        # 删除会话
+        sid = request.args.get("id", "")
+        if not sid or len(sessions_meta["list"]) <= 1:
+            return jsonify({"status": "error", "msg": "至少保留一个会话"}), 400
+        sessions_meta["list"] = [s for s in sessions_meta["list"] if s["id"] != sid]
+        # 删文件
+        path = _get_session_path(sid)
+        if os.path.exists(path):
+            os.remove(path)
+        # 如果删的是当前会话，切到第一个
+        if sessions_meta.get("current") == sid:
+            sessions_meta["current"] = sessions_meta["list"][0]["id"]
+            conversation_history = _load_session_history(sessions_meta["current"])
+        _save_sessions_meta()
+        return jsonify({"status": "ok"})
+
+@app.route("/sessions/<sid>/switch", methods=["POST"])
+def switch_session(sid):
+    global conversation_history, sessions_meta
+    # 验证 sid 存在
+    valid = any(s["id"] == sid for s in sessions_meta.get("list", []))
+    if not valid:
+        return jsonify({"status": "error", "msg": "会话不存在"}), 404
+    sessions_meta["current"] = sid
+    _save_sessions_meta()
+    conversation_history = _load_session_history(sid)
+    return jsonify({"status": "ok"})
+
 @app.route("/feedback", methods=["POST"])
 def feedback():
     data = request.get_json()
@@ -737,6 +886,7 @@ def chat():
 @app.route("/chat_stream", methods=["POST"])
 def chat_stream():
     user_input = request.json.get("message", "")
+    _auto_name_session(user_input)
     conversation_history.append({"role": "user", "content": user_input})
 
     def generate():

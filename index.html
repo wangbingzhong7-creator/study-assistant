@@ -34,6 +34,127 @@
     overflow: hidden;
   }
 
+  /* sidebar */
+  .layout { display: flex; height: 100vh; }
+  .sidebar {
+    width: 260px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+    z-index: 20;
+  }
+
+  .sidebar-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sidebar-header button {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), #c4905a);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+  .sidebar-header button:hover { opacity: 0.85; }
+
+  .sidebar-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    flex: 1;
+  }
+
+  .sidebar-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+
+  .session-item {
+    padding: 10px 14px;
+    border-radius: 12px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+
+  .session-item:hover { background: rgba(255,255,255,0.03); }
+  .session-item.active {
+    background: rgba(212,165,116,0.08);
+    border-color: rgba(212,165,116,0.2);
+  }
+
+  .session-item .sess-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .session-item .sess-preview {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sess-del {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: var(--red);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: opacity 0.15s;
+  }
+  .session-item:hover .sess-del { opacity: 0.7; }
+  .sess-del:hover { opacity: 1 !important; background: rgba(248,113,113,0.1); }
+
+  .hamburger {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+
+  @media (max-width: 768px) {
+    .sidebar {
+      position: fixed;
+      left: 0; top: 0; bottom: 0;
+      transform: translateX(-100%);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .hamburger { display: block; }
+  }
+
+  .main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
   /* header */
   header {
     display: flex;
@@ -474,8 +595,20 @@
 </style>
 </head>
 <body>
+<div class="layout">
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <span class="sidebar-title">会话列表</span>
+    <button onclick="newSession()" title="新建会话">+</button>
+  </div>
+  <div class="sidebar-list" id="sessionList"></div>
+</div>
+
+<div class="main-area">
 
 <header>
+  <button class="hamburger" onclick="toggleSidebar()">&#x2630;</button>
   <div class="logo">&#x1F4DA;</div>
   <h1>画限的AI备考小助手</h1>
   <span class="subtitle">AGENT &middot; POWERED BY DEEPSEEK</span>
@@ -520,10 +653,79 @@
   </div>
 </div>
 
+</body>
+</html>
+  <div class="fb-box">
+    <h3>意见反馈</h3>
+    <p class="fb-sub">觉得哪里不好用？想要什么新功能？</p>
+    <textarea id="fbText" placeholder="写下你的想法…"></textarea>
+    <div class="fb-actions">
+      <button class="fb-cancel" onclick="closeFeedback()">取消</button>
+      <button class="fb-submit" onclick="submitFeedback()">发送</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
+
+// ---- 会话管理 ----
+async function loadSessions() {
+  try {
+    var r = await fetch('/sessions');
+    var data = await r.json();
+    var list = document.getElementById('sessionList');
+    if (!list) return;
+    var html = '';
+    for (var i = 0; i < data.list.length; i++) {
+      var s = data.list[i];
+      var active = s.id === data.current ? ' active' : '';
+      html += '<div class="session-item' + active + '" onclick="switchSession(\'' + s.id + '\')">' +
+        '<div class="sess-name"><span>' + (s.title || '未命名') + '</span>' +
+        '<button class="sess-del" onclick="event.stopPropagation();deleteSession(\'' + s.id + '\')">×</button>' +
+        '</div>' +
+        '<div class="sess-preview">' + (s.preview || '新会话') + '</div>' +
+        '</div>';
+    }
+    list.innerHTML = html;
+  } catch(e) {}
+}
+
+async function newSession() {
+  var title = prompt('会话名称（可选）：') || '新会话';
+  try {
+    await fetch('/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title })
+    });
+    location.reload();
+  } catch(e) {}
+}
+
+async function switchSession(id) {
+  try {
+    await fetch('/sessions/' + id + '/switch', { method: 'POST' });
+    location.reload();
+  } catch(e) {}
+}
+
+async function deleteSession(id) {
+  if (!confirm('确定删除这个会话？')) return;
+  try {
+    var r = await fetch('/sessions?id=' + id, { method: 'DELETE' });
+    if (r.ok) location.reload();
+    else alert('至少保留一个会话');
+  } catch(e) {}
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+
+loadSessions();
 
 async function loadStats() {
   try {
@@ -782,5 +984,7 @@ async function submitFeedback() {
   }
 }
 </script>
-</body>
-</html>
+</div><!-- .main-area -->
+</div><!-- .layout -->
+
+<div class="fb-btn" onclick="openFeedback()" title="意见反馈">&#x1F4AC;</div>
