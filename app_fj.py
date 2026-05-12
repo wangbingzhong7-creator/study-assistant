@@ -810,6 +810,12 @@ def auth_check():
     u = request.cookies.get("x-user", "")
     return jsonify({"username": u})
 
+@app.route("/auth/logout", methods=["POST"])
+def auth_logout():
+    resp = make_response(jsonify({"status": "ok"}))
+    resp.delete_cookie("x-user")
+    return resp
+
 @app.route("/config")
 def site_config():
     return jsonify({"avatar_url": AVATAR_URL})

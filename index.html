@@ -421,6 +421,8 @@
     &middot;
     <label for="importFile" style="color:var(--muted);cursor:pointer;font-size:10px" title="导入数据">&#x1F4E4; 导入</label>
     <input id="importFile" type="file" accept=".zip" style="display:none" onchange="doImport(this)">
+    &middot;
+    <a href="#" onclick="doLogout();return false" style="color:var(--red);text-decoration:none;font-size:10px;opacity:0.8">退出</a>
   </span>
 </header>
 
@@ -618,6 +620,11 @@ async function renderHistory() {
     }
   } catch(e) {}
 }
+async function doLogout() {
+  await fetch('/auth/logout', { method: 'POST' });
+  location.reload();
+}
+
 async function doImport(input) {
   var file = input.files[0];
   if (!file) return;
