@@ -34,7 +34,7 @@
 
   .layout { display: flex; height: 100vh; }
 
-  /* sidebar */
+  /* ═══ 左侧边栏（会话列表） ═══ */
   .sidebar {
     width: 260px;
     background: var(--surface);
@@ -105,7 +105,7 @@
 
   .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-  /* header */
+  /* ═══ 顶部标题栏 ═══ */
   header {
     display: flex; align-items: center; gap: 12px;
     padding: 16px 24px;
@@ -126,7 +126,7 @@
     letter-spacing: 0.5px; margin-left: auto; opacity: 0.6;
   }
 
-  /* chat */
+  /* ═══ 聊天区域 ═══ */
   #chat {
     flex: 1; overflow-y: auto;
     padding: 24px 16px;
@@ -137,7 +137,7 @@
   #chat::-webkit-scrollbar-track { background: transparent; }
   #chat::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-  /* welcome */
+  /* ═══ 欢迎页 ═══ */
   .welcome {
     text-align: center; padding: 48px 20px;
     animation: fadeUp 0.5s ease;
@@ -162,7 +162,7 @@
     transform: translateY(-1px); box-shadow: var(--shadow);
   }
 
-  /* messages */
+  /* ═══ 消息气泡 ═══ */
   .msg { display: flex; gap: 10px; animation: fadeUp 0.3s ease; }
   .msg.user { flex-direction: row-reverse; }
 
@@ -192,7 +192,7 @@
     box-shadow: 0 2px 6px rgba(0,0,0,0.12);
   }
 
-  /* typing cursor */
+  /* ═══ 打字光标动画 ═══ */
   .answer-text.typing::after {
     content: "|"; animation: blink 1s step-end infinite;
     color: var(--accent); font-weight: 300;
@@ -221,7 +221,7 @@
     color: var(--green); font-size: 11px; opacity: 0.85;
   }
 
-  /* input */
+  /* ═══ 输入区域 ═══ */
   footer {
     padding: 14px 16px 18px;
     border-top: 1px solid var(--border);
@@ -284,7 +284,7 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  /* markdown */
+  /* ═══ Markdown渲染样式 ═══ */
   .bubble strong { color: var(--gold); font-weight: 600; }
   .bubble em { color: var(--accent); font-style: normal; }
   .bubble code {
@@ -298,7 +298,7 @@
     color: var(--muted); margin-top: 8px; opacity: 0.5;
   }
 
-  /* stats */
+  /* ═══ 学习数据面板 ═══ */
   .stats-dashboard {
     display: flex; gap: 12px; flex-wrap: wrap;
     justify-content: center; margin-top: 28px;
@@ -317,7 +317,7 @@
   }
   .stat-detail span { color: var(--gold); font-weight: 500; }
 
-  /* auth */
+  /* ═══ 登录页面 ═══ */
   .auth-overlay {
     position: fixed; inset: 0;
     background: var(--bg);
@@ -329,7 +329,7 @@
     text-align: center;
   }
 
-  /* feedback */
+  /* ═══ 意见反馈按钮和弹窗 ═══ */
   .fb-btn {
     position: fixed; bottom: 24px; left: 24px;
     width: 44px; height: 44px;
@@ -474,12 +474,14 @@ var avatarUrl = '';
   try { var r = await fetch('/config'); var d = await r.json(); avatarUrl = d.avatar_url || ''; } catch(e) {}
 })();
 
+// 生成AI头像HTML（有自定义URL则用img标签）
 function aiAv() { return avatarUrl ? '<img src=\"' + avatarUrl + '\" style=\"width:100%;height:100%;border-radius:12px;object-fit:cover\">' : ''; }
 
 // 清除旧的localStorage（新系统改用cookie）
 var currentUser = '';
 localStorage.removeItem('x-user');
 
+// 页面加载时检查登录状态（读cookie）
 async function checkAuth() {
   try {
     var r = await fetch('/auth/check');
@@ -493,6 +495,7 @@ async function checkAuth() {
 }
 checkAuth();
 
+// 所有API请求统一携带用户身份标记
 function authHeaders() {
   var h = { 'Content-Type': 'application/json' };
   if (currentUser) h['x-user'] = currentUser;
@@ -505,6 +508,7 @@ function showAuthMsg(msg) {
   m.style.display = 'block';
 }
 
+// 登录：POST到/auth/login→成功后写cookie→刷新页面
 async function doLogin() {
   var u = document.getElementById('authUser').value.trim();
   var p = document.getElementById('authPw').value;
@@ -524,6 +528,7 @@ async function doLogin() {
   } catch(e) { showAuthMsg('网络错误'); }
 }
 
+// 注册：POST到/auth/register
 async function doRegister() {
   var u = document.getElementById('authUser').value.trim();
   var p = document.getElementById('authPw').value;
@@ -549,11 +554,13 @@ function handleAuthKey(e) {
 
 document.getElementById('authPw').addEventListener('keydown', handleAuthKey);
 
+// 缓存DOM元素引用，避免重复查找
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 
-// ---- 会话管理 ----
+// ═══ 会话管理（创建/切换/删除会话、渲染历史） ═══
+// 从/sessions API加载会话列表，渲染到侧边栏
 function loadSessions() {
   return fetch('/sessions').then(function(r){ return r.json(); }).then(function(data){
     var list = document.getElementById('sessionList');
@@ -574,6 +581,7 @@ function loadSessions() {
   }).catch(function(){ return null; });
 }
 
+// 创建新会话（弹窗输入标题）
 async function newSession() {
   var title = prompt('会话名称（可选）：') || '新会话';
   try {
@@ -586,6 +594,7 @@ async function newSession() {
   } catch(e) {}
 }
 
+// 切换到指定会话
 async function switchSession(id) {
   try {
     await fetch('/sessions/' + id + '/switch', { method: 'POST' });
@@ -593,6 +602,7 @@ async function switchSession(id) {
   } catch(e) {}
 }
 
+// 删除会话（至少保留一个）
 async function deleteSession(id) {
   if (!confirm('确定删除这个会话？')) return;
   try {
@@ -602,10 +612,12 @@ async function deleteSession(id) {
   } catch(e) {}
 }
 
+// 移动端侧边栏展开/收起
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
 }
 
+// 页面加载时恢复当前会话的聊天记录
 async function renderHistory() {
   try {
     var r = await fetch('/sessions');
@@ -620,11 +632,13 @@ async function renderHistory() {
     }
   } catch(e) {}
 }
+// 退出登录：POST到/auth/logout→删cookie→刷新
 async function doLogout() {
   await fetch('/auth/logout', { method: 'POST' });
   location.reload();
 }
 
+// 导入数据：上传zip→POST到/import→刷新
 async function doImport(input) {
   var file = input.files[0];
   if (!file) return;
@@ -642,7 +656,8 @@ async function doImport(input) {
 
 loadSessions().then(function(){ renderHistory(); });
 
-// ---- 统计数据 ----
+// ═══ 学习数据面板 ═══
+// 从/stats API加载学习数据，渲染到欢迎页
 async function loadStats() {
   try {
     var resp = await fetch('/stats');
@@ -673,21 +688,25 @@ async function loadStats() {
 }
 loadStats();
 
-// ---- 聊天 ----
+// ═══ 聊天核心（发送消息、Markdown渲染、流式接收） ═══
+// 输入框自动调整高度
 function autoResize(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
 
+// 键盘事件：Enter发送，Shift+Enter换行
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
 }
 
+// 点击快捷入口芯片：去emoji后填入输入框并发送
 function quickSend(el) {
   input.value = el.textContent.replace(/^[^\s]+\s/, '');
   sendMsg();
 }
 
+// 行内Markdown渲染：粗体、斜体、代码、链接
 function _r(s) {
   return s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:underline">$1</a>')
           .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -695,6 +714,9 @@ function _r(s) {
           .replace(/`(.*?)`/g, '<code>$1</code>');
 }
 
+// Markdown块渲染：标题(###)、无序列表(-)、段落(
+
+)
 function renderMarkdown(text) {
   var html = '';
   var blocks = text.split(/\n\n+/);
@@ -720,6 +742,7 @@ function renderMarkdown(text) {
   return html || text;
 }
 
+// 在聊天区添加一条消息气泡（支持工具调用卡片）
 function addMsg(role, content) {
   var div = document.createElement('div');
   div.className = 'msg ' + role;
@@ -756,6 +779,7 @@ function addMsg(role, content) {
   return div;
 }
 
+// 显示思考中动画（已废弃，现在用sendMsg内的内联版本）
 function addThinking() {
   var wrap = document.createElement('div');
   wrap.className = 'msg ai';
@@ -769,6 +793,7 @@ function addThinking() {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// 核心：发送消息 → 连接SSE流 → 逐字渲染 → 处理工具调用
 async function sendMsg() {
   var text = input.value.trim();
   if (!text) return;
@@ -843,12 +868,15 @@ async function sendMsg() {
   loadStats();
 }
 
-// ---- 反馈 ----
+// ═══ 意见反馈 ═══
+// 打开意见反馈弹窗
 function openFeedback() { document.getElementById('fbModal').classList.add('show'); }
+// 关闭弹窗并清空输入
 function closeFeedback() {
   document.getElementById('fbModal').classList.remove('show');
   document.getElementById('fbText').value = '';
 }
+// 底部弹出提示条（2.5秒自动消失）
 function showToast(msg, isError) {
   var t = document.createElement('div');
   t.className = 'fb-toast';
@@ -857,6 +885,7 @@ function showToast(msg, isError) {
   document.body.appendChild(t);
   setTimeout(function(){ t.remove(); }, 2500);
 }
+// 提交反馈：检查字数→POST到/feedback→显示结果
 async function submitFeedback() {
   var text = document.getElementById('fbText').value.trim();
   if (text.length < 2) { showToast('请至少输入2个字', true); return; }

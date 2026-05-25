@@ -1,19 +1,21 @@
 from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask import Response, stream_with_context
-import requests
-import json
-import os
-import time
-import hashlib
-import zipfile
-import io
+import requests# 发 HTTP 请求（调 DeepSeek、Tavily API）
+import json# 解析和生成 JSON
+import os# 读环境变量、操作文件路径
+import time# 获取当前时间（记录反馈时间戳）
+import hashlib# 生成哈希值（用于去重检查）
+import zipfile# 打包文件为 zip
+import io# 内存中操作文件流（配合 zipfile 用）
 import smtplib
 from email.message import EmailMessage
 import chromadb
 from chromadb.utils import embedding_functions
 
+# 创建Flask应用实例
 app = Flask(__name__)
 
+# API密钥从环境变量读取，不在代码里硬编码
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY", "")
 TAVILY_KEY = os.environ.get("TAVILY_KEY", "")
 # 反馈邮箱配置（QQ邮箱SMTP）
@@ -22,6 +24,7 @@ SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 AVATAR_URL = os.environ.get("AVATAR_URL", "")
 URL = "https://api.deepseek.com/chat/completions"
 HEADERS = {"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"}
+# 数据根目录（Docker里是/app/data，本地是当前目录）
 DATA_DIR = os.environ.get("DATA_DIR", ".")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 DATA_REPO = os.environ.get("DATA_REPO", "")  # 如 https://ghp_xxx@github.com/user/data.git
@@ -68,8 +71,10 @@ MEMORY_META_FILE = os.path.join(DATA_DIR, "memory_meta.json")
 CONTEXT_SUMMARY_FILE = os.path.join(DATA_DIR, "context_summary.json")
 SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
 SESSIONS_META_FILE = os.path.join(DATA_DIR, "sessions.json")
+# 会话保留轮数上限，超过后旧对话压缩为摘要
 MAX_HISTORY_PAIRS = 8
 
+# 切换数据路径到指定用户目录，重新加载该用户全部状态
 def _switch_to_user(user):
     """切换所有数据路径到指定用户目录，并重新加载该用户的状态"""
     global NOTES_DIR, HISTORY_FILE, MEMORY_META_FILE, CONTEXT_SUMMARY_FILE, SESSIONS_DIR, SESSIONS_META_FILE
@@ -89,25 +94,30 @@ def _switch_to_user(user):
     migrate_to_sessions()
     conversation_history = get_current_history()
 
+# Flask钩子：每个HTTP请求前执行，根据cookie/header识别用户
 @app.before_request
 def _set_user():
     global _current_user
     u = request.headers.get("x-user") or request.cookies.get("x-user") or "default"
     if _current_user != u:
-        _current_user = u
+        # 当前用户标识，由before_request在每次请求时更新
+_current_user = u
         _switch_to_user(u)
 
+# 支持的科目分类
 SUBJECTS = ["政治", "英语", "数学", "专业课", "其他"]
 
+# LLM系统提示词（定义角色、行为规范、可用工具列表）
 BASE_SYSTEM_PROMPT = "你是一个备考助手，帮助用户整理考研知识点。你拥有长期记忆——每次对话后知识点会自动入库。回答用户问题前，先用 search_memory 搜索历史记忆，看看之前是否讨论过相关内容，再结合记忆回答。保存笔记时请根据内容判断所属科目（政治/英语/数学/专业课/其他），搜索记忆时可用科目筛选。笔记保存在服务器，用户可随时查看/搜索/删除。保存后告诉用户'点击下载'可保存到本地，用Markdown链接格式如 [点击下载](/download/主题名)，不要道歉说没法保存。需要时使用：search_web（搜索网络）、save_note（保存笔记）、read_note（读取笔记）、list_topics（列出笔记）、search_memory（语义搜索记忆）、generate_quiz（根据已学知识点出题）、delete_note（删除笔记）、update_note（修改笔记内容）。"
 
+# 从json文件加载对话历史
 def load_history():
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return [{"role": "system", "content": BASE_SYSTEM_PROMPT}]
 
-def save_history():
+def save_history()  # 持久化对话历史到文件:
     sid = get_current_session_id()
     if sid:
         _save_session_history(sid, conversation_history)
@@ -125,7 +135,7 @@ def save_history():
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(conversation_history, f, ensure_ascii=False, indent=2)
 
-# ── 多会话管理 ─────────────────────────────────────
+# ═══ 多会话管理 ═══
 
 def _load_sessions_meta():
     if os.path.exists(SESSIONS_META_FILE):
@@ -202,7 +212,7 @@ def _auto_name_session(user_msg):
             _save_sessions_meta()
             break
 
-# ── 上下文压缩 ─────────────────────────────────────
+# ═══ 上下文压缩（长对话自动摘要） ═══
 
 def load_context_summary():
     if os.path.exists(CONTEXT_SUMMARY_FILE):
@@ -227,6 +237,7 @@ def _count_pairs(history):
     """统计对话轮次（从索引1开始，跳过system message）"""
     return sum(1 for m in history[1:] if m["role"] == "user")
 
+# 调用DeepSeek将对话要点压缩为1-2句摘要
 def summarize_exchange(prev_summary, user_content, assistant_content):
     """调用 DeepSeek 将一轮对话的要点合并进摘要"""
     prompt = f"""将以下新对话要点合并到已有摘要中，输出更新后的摘要（2-5句话，只保留对考研备考有价值的知识点信息）。
@@ -253,7 +264,8 @@ def summarize_exchange(prev_summary, user_content, assistant_content):
     except:
         return prev_summary
 
-def compress_history():
+# 长对话压缩：最早一轮对话被提取为摘要，从历史中移除
+def compress_history()  # 检查是否需要压缩旧对话:
     """将最早一轮对话压缩进摘要，从历史中移除"""
     global conversation_history, context_summary
 
@@ -293,17 +305,21 @@ def compress_history():
     del conversation_history[first_user_idx:end_idx]
     # 更新 system 消息内容
     conversation_history[0]["content"] = get_system_content()
-    save_history()
+    save_history()  # 持久化对话历史到文件
 
-# ── 向量数据库 ──────────────────────────────────────
+# ═══ ChromaDB向量数据库（语义记忆核心） ═══
 
+# ChromaDB持久化目录（每个用户独立）
 VECTOR_DIR = os.path.join(DATA_DIR, "vector_db")
 
 # 使用 ChromaDB 内置 ONNX 嵌入（免 PyTorch，内存仅 ~50MB）
+# ChromaDB内置ONNX嵌入模型（all-MiniLM-L6-v2，约50MB，无需PyTorch）
 _ef = embedding_functions.DefaultEmbeddingFunction()
+# 当前用户标识，由before_request在每次请求时更新
 _current_user = "default"  # 在 before_request 中更新
 
 _user_collections = {}
+# 获取当前用户的ChromaDB向量库（按需创建）
 def _get_collection():
     """返回当前用户的 ChromaDB collection"""
     u = _current_user
@@ -317,7 +333,7 @@ def _sim_from_dist(dist):
     """ChromaDB ONNX 返回余弦距离，转成相似度 [0,1]"""
     return max(0, 1 - dist)
 
-# ── 记忆元数据（访问频次、来源、创建时间） ──────────
+# ═══ 记忆元数据（访问统计、重要性评分） ═══
 
 def load_meta():
     if os.path.exists(MEMORY_META_FILE):
@@ -343,6 +359,7 @@ def _ensure_meta(note_id, topic, source, subject=""):
         }
         save_meta(memory_meta)
 
+# 记录搜索命中次数（用于数据面板展示哪些笔记最常用）
 def _record_search(note_ids):
     """记录一次搜索命中，自动为旧笔记补齐元数据"""
     changed = False
@@ -361,6 +378,7 @@ def _record_search(note_ids):
     if changed:
         save_meta(memory_meta)
 
+# 笔记重要性评分：来源权重 × 访问频次 × 内容质量
 def _importance(note_id, content_len):
     """计算记忆的重要性权重"""
     meta = memory_meta.get(note_id, {})
@@ -377,6 +395,7 @@ def _importance(note_id, content_len):
         w += 0.15
     return w
 
+# 保存前去重：余弦相似度 > 75% 则跳过
 def _check_duplicate(content, threshold=0.75):
     """检查是否已存在高度相似的内容"""
     if _get_collection().count() == 0:
@@ -395,6 +414,7 @@ def _check_duplicate(content, threshold=0.75):
     return False, None
 
 
+# 核心：语义搜索笔记（向量检索 + 科目过滤 + 重要性排序）
 def search_memory(query, n=3, subject=""):
     """语义搜索笔记，按相似度×重要性权重排序，可按科目过滤"""
     fetch_n = max(n * 3, 10)
@@ -465,8 +485,9 @@ def migrate_existing_notes():
 
 migrate_existing_notes()
 
-# ── 自动记忆 ──────────────────────────────────────
+# ═══ 自动记忆（对话后提取知识点入库） ═══
 
+# 让LLM判断对话是否有知识点，是则提取主题+科目+摘要
 def extract_knowledge(user_msg, assistant_msg):
     """分析对话，决定是否值得记住，并提取知识点摘要及所属科目"""
     prompt = f"""分析以下对话。如果只是闲聊、问候、与学习无关的话题，返回 worth_saving=false。
@@ -498,6 +519,7 @@ def extract_knowledge(user_msg, assistant_msg):
     except:
         return {"worth_saving": False, "notes": []}
 
+# 每轮对话后自动调用：提取知识点 → 查重 → 写入向量库
 def auto_memorize(user_msg, assistant_msg):
     """对话结束后自动提取知识点并写入向量库（带去重）"""
     if len(assistant_msg) < 50:
@@ -523,7 +545,7 @@ def auto_memorize(user_msg, assistant_msg):
             )
             _ensure_meta(note_id, topic, "auto", subject)
 
-# ── 工具函数 ──────────────────────────────────────
+# ═══ LLM工具函数（笔记CRUD、网络搜索） ═══
 
 def save_note(topic, content, subject=""):
     path = os.path.join(NOTES_DIR, f"{topic}.txt")
@@ -630,6 +652,7 @@ def search_web(query):
     except:
         return "搜索失败，请检查网络"
 
+# 智能出题：从向量库提取知识点素材 → LLM生成题目（附答案+解析）
 def generate_quiz(subject="", count=5, qtype="mixed"):
     """根据向量库中的知识点生成练习题"""
     # 1. 从向量库提取素材
@@ -680,6 +703,7 @@ def generate_quiz(subject="", count=5, qtype="mixed"):
     except:
         return "出题失败，请稍后重试"
 
+# LLM工具调度器：DeepSeek返回的工具调用在这里分发到具体函数
 def run_tool(name, args):
     if name == "save_note":    return save_note(topic=args.get("topic",""), content=args.get("content",""), subject=args.get("subject",""))
     if name == "read_note":    return read_note(**args)
@@ -691,6 +715,7 @@ def run_tool(name, args):
     if name == "update_note":  return update_note(topic=args.get("topic",""), content=args.get("content",""), subject=args.get("subject",""))
     return f"未知工具：{name}"
 
+# 给DeepSeek的Function Calling工具定义（JSON Schema格式）
 TOOLS = [
     {"type": "function", "function": {
         "name": "save_note",
@@ -758,8 +783,9 @@ TOOLS = [
     }}
 ]
 
-# ── 学习数据面板 ────────────────────────────────────
+# ═══ 学习数据面板 ═══
 
+# 聚合学习统计数据（笔记数、科目分布、查阅排行、最近活跃）
 def get_stats():
     """聚合学习统计数据"""
     meta_list = list(memory_meta.values())
@@ -799,12 +825,14 @@ def get_stats():
         "total_searches": total_searches
     }
 
-# ── 路由 ──────────────────────────────────────────
+# ═══ Flask路由（HTTP API） ═══
 
+# 健康检查（Railway探活）
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
 
+# 检查登录状态（读cookie返回用户名）
 @app.route("/auth/check")
 def auth_check():
     u = request.cookies.get("x-user", "")
@@ -816,10 +844,12 @@ def auth_logout():
     resp.delete_cookie("x-user")
     return resp
 
+# 前端配置（头像URL等）
 @app.route("/config")
 def site_config():
     return jsonify({"avatar_url": AVATAR_URL})
 
+# 注册：用户名+密码 → 加盐SHA-256存储
 @app.route("/auth/register", methods=["POST"])
 def auth_register():
     data = request.get_json()
@@ -834,6 +864,7 @@ def auth_register():
     _save_users(users)
     return jsonify({"status": "ok"})
 
+# 登录：验证密码 → 写cookie（有效期1年）
 @app.route("/auth/login", methods=["POST"])
 def auth_login():
     data = request.get_json()
@@ -850,6 +881,7 @@ def auth_login():
         return resp
     return jsonify({"status": "error", "msg": "密码错误"}), 401
 
+# 导出当前用户全部数据为zip下载
 @app.route("/export")
 def export_data():
     """下载当前用户的所有数据为zip"""
@@ -866,6 +898,7 @@ def export_data():
     return Response(buf.getvalue(), mimetype="application/zip",
                     headers={"Content-Disposition": f"attachment; filename=backup-{u}-{time.strftime('%m%d-%H%M')}.zip"})
 
+# 导入：上传zip恢复用户数据
 @app.route("/import", methods=["POST"])
 def import_data():
     """恢复用户数据（上传zip）"""
@@ -883,6 +916,7 @@ def import_data():
     except Exception as e:
         return jsonify({"status": "error", "msg": str(e)}), 400
 
+# 下载单条笔记为txt文件
 @app.route("/download/<topic>")
 def download_note(topic):
     # 先精确匹配
@@ -896,10 +930,12 @@ def download_note(topic):
                 return send_from_directory(NOTES_DIR, fname, as_attachment=True, download_name=fname)
     return "笔记不存在", 404
 
+# 学习数据面板API
 @app.route("/stats")
 def stats():
     return jsonify(get_stats())
 
+# 多会话API：GET列表 / POST创建 / DELETE删除
 @app.route("/sessions", methods=["GET", "POST", "DELETE"])
 def sessions_api():
     global conversation_history, sessions_meta
@@ -955,6 +991,7 @@ def sessions_api():
         _save_sessions_meta()
         return jsonify({"status": "ok"})
 
+# 切换当前会话
 @app.route("/sessions/<sid>/switch", methods=["POST"])
 def switch_session(sid):
     global conversation_history, sessions_meta
@@ -967,6 +1004,7 @@ def switch_session(sid):
     conversation_history = _load_session_history(sid)
     return jsonify({"status": "ok"})
 
+# 意见反馈：保存到文件 + QQ邮箱SMTP通知
 @app.route("/feedback", methods=["POST"])
 def feedback():
     data = request.get_json()
@@ -1017,6 +1055,7 @@ def feedback():
 def index():
     return send_from_directory(".", "index.html")
 
+# 非流式聊天（前端主要用chat_stream）
 @app.route("/chat", methods=["POST"])
 def chat():
     user_input = request.json.get("message", "")
@@ -1060,13 +1099,14 @@ def chat():
 
     return jsonify({"events": events})
 
+# 核心路由：SSE流式聊天（逐字推送+工具调用可视化）
 @app.route("/chat_stream", methods=["POST"])
 def chat_stream():
     user_input = request.json.get("message", "")
     _auto_name_session(user_input)
     conversation_history.append({"role": "user", "content": user_input})
 
-    def generate():
+    def generate():  # SSE生成器：循环调DeepSeek→处理工具调用→流式输出
         messages = conversation_history.copy()
         # 注入最新摘要到系统消息
         if messages:
@@ -1097,9 +1137,9 @@ def chat_stream():
                     "messages": messages[:-1],
                     "tools": TOOLS,
                     "stream": True
-                }, stream=True)
+                }, stream=True  # 流式模式：DeepSeek逐token返回)
 
-                full_content = ""
+                full_content = ""  # 累积DeepSeek完整回复
                 for line in stream_resp.iter_lines():
                     if not line:
                         continue
@@ -1120,9 +1160,9 @@ def chat_stream():
 
                 yield f"data: {json.dumps({'type':'done'})}\n\n"
                 conversation_history.append({"role": "assistant", "content": full_content})
-                save_history()
-                compress_history()
-                auto_memorize(user_input, full_content)
+                save_history()  # 持久化对话历史到文件
+                compress_history()  # 检查是否需要压缩旧对话
+                auto_memorize(user_input, full_content)  # 对话完成后自动提取知识点入库
                 break
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
