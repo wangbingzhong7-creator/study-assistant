@@ -1136,8 +1136,9 @@ def chat_stream():
                     "model": "deepseek-chat",
                     "messages": messages[:-1],
                     "tools": TOOLS,
-                    "stream": True
-                }, stream=True)  # 流式模式：DeepSeek逐token返回
+                    "stream": True,
+                    "max_tokens": 4096
+                }, stream=True, timeout=(10, 120))  # 10s连接超时/120s读取超时
 
                 full_content = ""  # 累积DeepSeek完整回复
                 for line in stream_resp.iter_lines():
