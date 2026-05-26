@@ -100,8 +100,7 @@ def _set_user():
     global _current_user
     u = request.headers.get("x-user") or request.cookies.get("x-user") or "default"
     if _current_user != u:
-        # 当前用户标识，由before_request在每次请求时更新
-_current_user = u
+        _current_user = u
         _switch_to_user(u)
 
 # 支持的科目分类
@@ -117,7 +116,8 @@ def load_history():
             return json.load(f)
     return [{"role": "system", "content": BASE_SYSTEM_PROMPT}]
 
-def save_history()  # 持久化对话历史到文件:
+def save_history():
+    # 持久化对话历史到文件
     sid = get_current_session_id()
     if sid:
         _save_session_history(sid, conversation_history)
@@ -265,7 +265,7 @@ def summarize_exchange(prev_summary, user_content, assistant_content):
         return prev_summary
 
 # 长对话压缩：最早一轮对话被提取为摘要，从历史中移除
-def compress_history()  # 检查是否需要压缩旧对话:
+def compress_history():
     """将最早一轮对话压缩进摘要，从历史中移除"""
     global conversation_history, context_summary
 
@@ -1137,7 +1137,7 @@ def chat_stream():
                     "messages": messages[:-1],
                     "tools": TOOLS,
                     "stream": True
-                }, stream=True  # 流式模式：DeepSeek逐token返回)
+                }, stream=True)  # 流式模式：DeepSeek逐token返回
 
                 full_content = ""  # 累积DeepSeek完整回复
                 for line in stream_resp.iter_lines():
