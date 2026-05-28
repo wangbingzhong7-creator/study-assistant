@@ -722,9 +722,7 @@ function _r(s) {
           .replace(/`(.*?)`/g, '<code>$1</code>');
 }
 
-// Markdown块渲染：标题(###)、无序列表(-)、段落(
-
-)
+// Markdown块渲染
 function renderMarkdown(text) {
   var html = '';
   var blocks = text.split(/\n\n+/);
