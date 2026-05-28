@@ -490,8 +490,16 @@ async function checkAuth() {
       currentUser = d.username;
       document.getElementById('authOverlay').style.display = 'none';
       document.getElementById('mainLayout').style.display = 'flex';
+    } else {
+      // 未登录：显示登录页，隐藏主界面
+      document.getElementById('authOverlay').style.display = 'flex';
+      document.getElementById('mainLayout').style.display = 'none';
     }
-  } catch(e) {}
+  } catch(e) {
+    // 网络错误也显示登录页
+    document.getElementById('authOverlay').style.display = 'flex';
+    document.getElementById('mainLayout').style.display = 'none';
+  }
 }
 checkAuth();
 
