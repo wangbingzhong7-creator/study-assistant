@@ -475,7 +475,7 @@ var avatarUrl = '';
 })();
 
 // 生成AI头像HTML（有自定义URL则用img标签）
-function aiAv() { return avatarUrl ? '<img src=\"' + avatarUrl + '\" style=\"width:100%;height:100%;border-radius:12px;object-fit:cover\">' : ''; }
+function aiAv() { if (!avatarUrl) return ''; return '<img src=' + avatarUrl + ' style=width:100%;height:100%;border-radius:12px;object-fit:cover>'; }
 
 // 清除旧的localStorage（新系统改用cookie）
 var currentUser = '';
