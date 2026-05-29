@@ -949,7 +949,7 @@ def sessions_api():
             # 只返回 user/assistant 消息（跳过 system 和 tool）
             for m in full[1:]:  # 跳过 system prompt
                 if m["role"] in ("user", "assistant"):
-                    hist.append({"role": m["role"], "content": m["content"][:500]})
+                    hist.append({"role": m["role"], "content": m["content"]})
         return jsonify({
             "current": sid,
             "list": sessions_meta.get("list", []),
